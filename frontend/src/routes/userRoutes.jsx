@@ -1,9 +1,10 @@
 import PlaceholderPage from '../components/common/PlaceholderPage'
+import UserDashboard from '../pages/user/UserDashboard'
 
 export const userRoutes = [
   {
     path: '/dashboard',
-    element: <PlaceholderPage title="User Dashboard" />,
+    element: <UserDashboard />,
   },
   {
     path: '/join-queue',
