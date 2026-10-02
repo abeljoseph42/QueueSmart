@@ -1,9 +1,7 @@
 import { Link } from 'react-router-dom'
-import {
-  availableServices,
-  currentQueue,
-  recentNotifications,
-} from './userDashboardData'
+import NotificationList from '../../components/notifications/NotificationList'
+import { notifications } from '../../components/notifications/notificationData'
+import { availableServices, currentQueue } from './userDashboardData'
 import './UserDashboard.css'
 
 function ServiceAction({ service }) {
@@ -95,15 +93,7 @@ export default function UserDashboard() {
         <section className="card" aria-labelledby="notifications-heading">
           <h2 id="notifications-heading">Notifications</h2>
 
-          {recentNotifications.length > 0 ? (
-            <ul className="dashboard-notifications">
-              {recentNotifications.map((notification) => (
-                <li key={notification.id}>{notification.message}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="dashboard-empty">No new notifications.</p>
-          )}
+          <NotificationList notifications={notifications} />
         </section>
       </div>
 
