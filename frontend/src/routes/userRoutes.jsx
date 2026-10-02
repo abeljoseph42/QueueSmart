@@ -2,6 +2,7 @@ import PlaceholderPage from '../components/common/PlaceholderPage'
 import UserDashboard from '../pages/user/UserDashboard'
 
 import JoinQueue from '../pages/user/JoinQueue'
+import QueueStatus from '../pages/user/QueueStatus'
 
 export const userRoutes = [
   {
@@ -14,7 +15,7 @@ export const userRoutes = [
   },
   {
     path: '/queue-status',
-    element: <PlaceholderPage title="Queue Status" />,
+    element: <QueueStatus />,
   },
   {
     path: '/history',

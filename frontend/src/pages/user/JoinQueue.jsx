@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import './JoinQueue.css'
 
 // TODO: move to src/data/services.js once the team agrees on the shared shape
@@ -146,6 +147,17 @@ export default function JoinQueue() {
               Leave this queue to join a different service.
             </p>
             <div className="join-queue-actions">
+              <Link
+                to="/queue-status"
+                state={{
+                  serviceName: joinedService.name,
+                  position: yourPosition,
+                  estimatedWait: joinedService.estimatedWait,
+                }}
+                className="button"
+              >
+                View Queue Status
+              </Link>
               <button type="button" className="join-queue-leave" onClick={handleLeave}>
                 Leave Queue
               </button>
