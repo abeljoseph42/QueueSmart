@@ -1,12 +1,13 @@
-import PlaceholderPage from '../components/common/PlaceholderPage'
+import Login from '../pages/auth/Login'
+import Register from '../pages/auth/Register'
 
 export const authRoutes = [
   {
     path: '/login',
-    element: <PlaceholderPage title="Login" />,
+    element: <Login />,
   },
   {
     path: '/register',
-    element: <PlaceholderPage title="Registration" />,
+    element: <Register />,
   },
 ]
