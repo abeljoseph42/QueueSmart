@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { currentQueue } from './userDashboardData'
+import { currentQueue, recentNotifications } from './userDashboardData'
 import './UserDashboard.css'
 
 export default function UserDashboard() {
@@ -51,6 +51,20 @@ export default function UserDashboard() {
                 Join a queue
               </Link>
             </>
+          )}
+        </section>
+
+        <section className="card" aria-labelledby="notifications-heading">
+          <h2 id="notifications-heading">Notifications</h2>
+
+          {recentNotifications.length > 0 ? (
+            <ul className="dashboard-notifications">
+              {recentNotifications.map((notification) => (
+                <li key={notification.id}>{notification.message}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="dashboard-empty">No new notifications.</p>
           )}
         </section>
       </div>
