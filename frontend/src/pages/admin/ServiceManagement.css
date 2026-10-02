@@ -111,3 +111,25 @@
     grid-template-columns: 1fr;
   }
 }
+
+.service-demo-note {
+  margin: 0 0 1.5rem;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.service-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.service-feedback {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-success);
+  border-radius: 8px;
+  background: #edf8f0;
+  color: var(--color-success);
+  overflow-wrap: anywhere;
+}
