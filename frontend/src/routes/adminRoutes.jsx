@@ -1,12 +1,13 @@
-import PlaceholderPage from '../components/common/PlaceholderPage'
+import AdminDashboard from '../pages/admin/AdminDashboard'
+import QueueManagement from '../pages/admin/QueueManagement'
 
 export const adminRoutes = [
   {
     path: '/admin',
-    element: <PlaceholderPage title="Admin Dashboard" />,
+    element: <AdminDashboard />,
   },
   {
     path: '/admin/queues',
-    element: <PlaceholderPage title="Queue Management" />,
+    element: <QueueManagement />,
   },
 ]
