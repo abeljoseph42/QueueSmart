@@ -1,9 +1,10 @@
+import AdminDashboard from '../pages/admin/AdminDashboard'
 import PlaceholderPage from '../components/common/PlaceholderPage'
 
 export const adminRoutes = [
   {
     path: '/admin',
-    element: <PlaceholderPage title="Admin Dashboard" />,
+    element: <AdminDashboard />,
   },
   {
     path: '/admin/queues',
