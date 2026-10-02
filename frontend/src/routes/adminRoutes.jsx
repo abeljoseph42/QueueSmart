@@ -1,5 +1,5 @@
 import AdminDashboard from '../pages/admin/AdminDashboard'
-import PlaceholderPage from '../components/common/PlaceholderPage'
+import QueueManagement from '../pages/admin/QueueManagement'
 
 export const adminRoutes = [
   {
@@ -8,6 +8,6 @@ export const adminRoutes = [
   },
   {
     path: '/admin/queues',
-    element: <PlaceholderPage title="Queue Management" />,
+    element: <QueueManagement />,
   },
 ]
