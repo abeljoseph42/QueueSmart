@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import './JoinQueue.css'
 
-
 // TODO: move to src/data/services.js once the team agrees on the shared shape
 const services = [
   {
@@ -40,6 +39,33 @@ const services = [
 
 export default function JoinQueue() {
   const [selectedId, setSelectedId] = useState(null)
+  // The service the user is currently waiting in (null = not in any queue).
+  const [joinedId, setJoinedId] = useState(null)
+  const [message, setMessage] = useState(null)
+
+  const selectedService = services.find((service) => service.id === selectedId)
+  const joinedService = services.find((service) => service.id === joinedId)
+
+  // Joining puts you at the back of the line.
+  const yourPosition = joinedService ? joinedService.peopleWaiting + 1 : null
+
+  function handleSelect(serviceId) {
+    setSelectedId(serviceId)
+    setMessage(null)
+  }
+
+  function handleJoin() {
+    if (!selectedService) return
+    setJoinedId(selectedService.id)
+    setMessage({ type: 'success', text: `You joined ${selectedService.name}.` })
+  }
+
+  function handleLeave() {
+    if (!joinedService) return
+    setMessage({ type: 'info', text: `You left the ${joinedService.name} queue.` })
+    setJoinedId(null)
+    setSelectedId(null)
+  }
 
   return (
     <section className="join-queue">
@@ -51,17 +77,29 @@ export default function JoinQueue() {
         </p>
       </header>
 
+      {message && (
+        <p
+          className={`join-queue-alert is-${message.type}`}
+          role="status"
+        >
+          {message.text}
+        </p>
+      )}
+
       <div className="join-queue-grid">
         {services.map((service) => {
           const isSelected = service.id === selectedId
+          const isJoined = service.id === joinedId
+          // While in a queue, the other cards are locked.
+          const isLocked = joinedId !== null && !isJoined
 
           return (
             <button
               key={service.id}
               type="button"
               className={`join-queue-card${isSelected ? ' is-selected' : ''}`}
-              onClick={() => setSelectedId(service.id)}
-              disabled={!service.isOpen}
+              onClick={() => handleSelect(service.id)}
+              disabled={!service.isOpen || isLocked}
               aria-pressed={isSelected}
             >
               <div className="join-queue-card-top">
@@ -69,7 +107,7 @@ export default function JoinQueue() {
                 <span
                   className={`join-queue-status ${service.isOpen ? 'is-open' : 'is-closed'}`}
                 >
-                  {service.isOpen ? 'Open' : 'Closed'}
+                  {isJoined ? 'Joined' : service.isOpen ? 'Open' : 'Closed'}
                 </span>
               </div>
 
@@ -82,13 +120,69 @@ export default function JoinQueue() {
                 </div>
                 <div>
                   <dt>People waiting</dt>
-                  <dd>{service.peopleWaiting}</dd>
+                  <dd>{isJoined ? service.peopleWaiting + 1 : service.peopleWaiting}</dd>
                 </div>
               </dl>
             </button>
           )
         })}
       </div>
+
+      <aside className="join-queue-panel card" aria-live="polite">
+        {joinedService ? (
+          <>
+            <h2>You&apos;re in line for {joinedService.name}</h2>
+            <dl className="join-queue-summary">
+              <div>
+                <dt>Your position</dt>
+                <dd>#{yourPosition}</dd>
+              </div>
+              <div>
+                <dt>Estimated wait</dt>
+                <dd>{joinedService.estimatedWait} min</dd>
+              </div>
+            </dl>
+            <p className="join-queue-hint">
+              Leave this queue to join a different service.
+            </p>
+            <div className="join-queue-actions">
+              <button type="button" className="join-queue-leave" onClick={handleLeave}>
+                Leave Queue
+              </button>
+            </div>
+          </>
+        ) : selectedService ? (
+          <>
+            <h2>{selectedService.name}</h2>
+            <dl className="join-queue-summary">
+              <div>
+                <dt>Estimated wait</dt>
+                <dd>{selectedService.estimatedWait} min</dd>
+              </div>
+              <div>
+                <dt>People ahead of you</dt>
+                <dd>{selectedService.peopleWaiting}</dd>
+              </div>
+            </dl>
+            <div className="join-queue-actions">
+              <button type="button" onClick={handleJoin}>
+                Join Queue
+              </button>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => setSelectedId(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="join-queue-hint">
+            Select an open service above to see its wait time and join the queue.
+          </p>
+        )}
+      </aside>
     </section>
   )
 }
