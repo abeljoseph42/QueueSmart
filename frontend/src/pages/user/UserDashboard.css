@@ -155,3 +155,8 @@
   margin: 0;
   font-weight: 700;
 }
+
+.dashboard-service-action {
+  margin-top: auto;
+  align-self: flex-start;
+}

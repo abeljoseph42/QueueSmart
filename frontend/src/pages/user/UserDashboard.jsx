@@ -6,6 +6,40 @@ import {
 } from './userDashboardData'
 import './UserDashboard.css'
 
+function ServiceAction({ service }) {
+  const isCurrentQueue = currentQueue?.serviceId === service.id
+
+  if (isCurrentQueue) {
+    return (
+      <Link
+        to="/queue-status"
+        className="button dashboard-service-action"
+        aria-label={`View queue status for ${service.name}`}
+      >
+        View status
+      </Link>
+    )
+  }
+
+  if (!service.isOpen) {
+    return (
+      <button type="button" className="dashboard-service-action" disabled>
+        Queue closed
+      </button>
+    )
+  }
+
+  return (
+    <Link
+      to="/join-queue"
+      className="button button-secondary dashboard-service-action"
+      aria-label={`Join queue for ${service.name}`}
+    >
+      Join queue
+    </Link>
+  )
+}
+
 export default function UserDashboard() {
   return (
     <div className="dashboard">
@@ -112,6 +146,8 @@ export default function UserDashboard() {
                   This queue is not accepting new people right now.
                 </p>
               )}
+
+              <ServiceAction service={service} />
             </li>
           ))}
         </ul>

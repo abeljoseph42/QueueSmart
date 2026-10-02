@@ -1,6 +1,7 @@
 // Mock data for the User Dashboard.
 
 export const currentQueue = {
+  serviceId: 1,
   serviceName: 'DMV Services',
   status: 'Waiting',
   position: 4,
@@ -23,14 +24,6 @@ export const availableServices = [
   },
   {
     id: 2,
-    name: 'Passport Office',
-    description: 'New passport applications and renewals.',
-    peopleWaiting: 15,
-    estimatedWaitMinutes: 35,
-    isOpen: true,
-  },
-  {
-    id: 3,
     name: 'Student Advising',
     description: 'Course planning and degree audit help.',
     peopleWaiting: 3,
@@ -38,9 +31,17 @@ export const availableServices = [
     isOpen: true,
   },
   {
+    id: 3,
+    name: 'IT Help Desk',
+    description: 'Account access, Wi-Fi, and device troubleshooting.',
+    peopleWaiting: 6,
+    estimatedWaitMinutes: 20,
+    isOpen: true,
+  },
+  {
     id: 4,
-    name: 'Financial Aid',
-    description: 'Questions about scholarships, loans, and payment plans.',
+    name: 'Financial Services',
+    description: 'Questions about billing, payments, and refunds.',
     peopleWaiting: 0,
     estimatedWaitMinutes: 0,
     isOpen: false,
