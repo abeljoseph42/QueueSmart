@@ -1,5 +1,7 @@
 import PlaceholderPage from '../components/common/PlaceholderPage'
 
+import JoinQueue from '../pages/user/JoinQueue'
+
 export const userRoutes = [
   {
     path: '/dashboard',
@@ -7,7 +9,7 @@ export const userRoutes = [
   },
   {
     path: '/join-queue',
-    element: <PlaceholderPage title="Join Queue" />,
+    element: <JoinQueue />,
   },
   {
     path: '/queue-status',
