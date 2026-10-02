@@ -20,3 +20,5 @@
   .admin-dashboard__metrics,
   .admin-dashboard__services { grid-template-columns: 1fr; }
 }
+
+.admin-dashboard__status--closed { background: #f2f4f7; color: var(--color-muted); }

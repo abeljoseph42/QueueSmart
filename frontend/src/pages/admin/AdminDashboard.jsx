@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import './AdminDashboard.css'
 
-const services = [
+const initialServices = [
   { id: 'academic-advising', name: 'Academic Advising', description: 'Course selection and academic planning.', queueLength: 7, status: 'OPEN' },
   { id: 'financial-aid', name: 'Financial Aid', description: 'Financial aid and funding questions.', queueLength: 6, status: 'OPEN' },
   { id: 'technical-support', name: 'Technical Support', description: 'Help with accounts, devices, and technology.', queueLength: 5, status: 'OPEN' },
@@ -9,6 +10,16 @@ const services = [
 ]
 
 export default function AdminDashboard() {
+  const [services, setServices] = useState(initialServices)
+
+  function toggleQueueStatus(serviceId) {
+    setServices((currentServices) => currentServices.map((service) =>
+      service.id === serviceId
+        ? { ...service, status: service.status === 'OPEN' ? 'CLOSED' : 'OPEN' }
+        : service,
+    ))
+  }
+
   return (
     <section className="admin-dashboard" aria-labelledby="admin-dashboard-heading">
       <header className="admin-dashboard__header">
@@ -37,20 +48,25 @@ export default function AdminDashboard() {
             <article className="card admin-dashboard__service" key={service.id}>
               <div className="admin-dashboard__service-heading">
                 <h3>{service.name}</h3>
-                <span className="admin-dashboard__status">{service.status}</span>
+                <span className={`admin-dashboard__status${service.status === 'CLOSED' ? ' admin-dashboard__status--closed' : ''}`} aria-live="polite">{service.status}</span>
               </div>
               <p className="admin-dashboard__description">{service.description}</p>
               <p className="admin-dashboard__queue-length"><strong>{service.queueLength}</strong> people waiting</p>
               <div className="admin-dashboard__actions">
                 <Link className="button" to={`/admin/queues?service=${service.id}`} aria-label={`Manage queue for ${service.name}`}>Manage Queue</Link>
-                <button type="button" className="button-secondary" disabled>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => toggleQueueStatus(service.id)}
+                  aria-label={`${service.status === 'OPEN' ? 'Close' : 'Open'} queue for ${service.name}`}
+                >
                   {service.status === 'OPEN' ? 'Close Queue' : 'Open Queue'}
                 </button>
               </div>
             </article>
           ))}
         </div>
-        <p className="admin-dashboard__note">Queue open and close controls are coming in the next development checkpoint.</p>
+        <p className="admin-dashboard__note">Queue status changes are simulated and reset when this page reloads.</p>
       </section>
     </section>
   )
