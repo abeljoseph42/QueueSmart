@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import './QueueManagement.css'
 
@@ -19,7 +20,56 @@ export default function QueueManagement() {
   const [searchParams] = useSearchParams()
   const serviceId = searchParams.get('service') ?? 'academic-advising'
   const serviceName = Object.hasOwn(serviceNames, serviceId) ? serviceNames[serviceId] : null
-  const queue = serviceId === 'academic-advising' ? academicQueue : []
+  const [queues, setQueues] = useState({
+    'academic-advising': { users: academicQueue, message: '' },
+  })
+  const queueState = queues[serviceId] ?? { users: [], message: '' }
+  const queue = queueState.users
+
+  function moveUser(userId, direction) {
+    setQueues((current) => {
+      const state = current[serviceId]
+      if (!state) return current
+      const index = state.users.findIndex((user) => user.id === userId)
+      const nextIndex = index + direction
+      if (index < 0 || nextIndex < 0 || nextIndex >= state.users.length) return current
+      const users = [...state.users]
+      ;[users[index], users[nextIndex]] = [users[nextIndex], users[index]]
+      return {
+        ...current,
+        [serviceId]: { users, message: `${users[nextIndex].name} moved to position ${nextIndex + 1}.` },
+      }
+    })
+  }
+
+  function removeUser(userId) {
+    setQueues((current) => {
+      const state = current[serviceId]
+      const user = state?.users.find((entry) => entry.id === userId)
+      if (!user) return current
+      return {
+        ...current,
+        [serviceId]: {
+          users: state.users.filter((entry) => entry.id !== userId),
+          message: `${user.name} has been removed from the queue.`,
+        },
+      }
+    })
+  }
+
+  function serveNext() {
+    setQueues((current) => {
+      const state = current[serviceId]
+      if (!state?.users.length) return current
+      return {
+        ...current,
+        [serviceId]: {
+          users: state.users.slice(1),
+          message: `${state.users[0].name} has been served.`,
+        },
+      }
+    })
+  }
 
   if (!serviceName) {
     return (
@@ -43,7 +93,7 @@ export default function QueueManagement() {
       <div className="card">
         <div className="queue-management__summary">
           <h3>Waiting list <span>({queue.length})</span></h3>
-          <button type="button" disabled>Serve Next</button>
+          <button type="button" onClick={serveNext} disabled={queue.length === 0}>Serve Next</button>
         </div>
         <div className="queue-management__table-wrapper" role="region" aria-label={`${serviceName} waiting list`} tabIndex={0}>
           <table>
@@ -64,20 +114,21 @@ export default function QueueManagement() {
                   <td>{user.waitTime} minutes</td>
                   <td>
                     <div className="queue-management__actions">
-                      <button type="button" className="button-secondary" disabled aria-label={`Move ${user.name} up`}>Move Up</button>
-                      <button type="button" className="button-secondary" disabled aria-label={`Move ${user.name} down`}>Move Down</button>
-                      <button type="button" className="button-secondary" disabled aria-label={`Remove ${user.name}`}>Remove</button>
+                      <button type="button" className="button-secondary" onClick={() => moveUser(user.id, -1)} disabled={index === 0} aria-label={`Move ${user.name} up`}>Move Up</button>
+                      <button type="button" className="button-secondary" onClick={() => moveUser(user.id, 1)} disabled={index === queue.length - 1} aria-label={`Move ${user.name} down`}>Move Down</button>
+                      <button type="button" className="button-secondary" onClick={() => removeUser(user.id)} aria-label={`Remove ${user.name}`}>Remove</button>
                     </div>
                   </td>
                 </tr>
               ))}
               {queue.length === 0 && (
-                <tr><td colSpan={4} className="queue-management__empty">No sample users have been added for this service.</td></tr>
+                <tr><td colSpan={4} className="queue-management__empty">{serviceId === 'academic-advising' ? 'No one is waiting in this queue.' : 'No sample users have been added for this service.'}</td></tr>
               )}
             </tbody>
           </table>
         </div>
-        <p className="queue-management__note">Queue actions will be enabled in the next development checkpoint.</p>
+        <p className="queue-management__message success-message" role="status">{queueState.message}</p>
+        <p className="queue-management__note">These actions are simulated. Reloading the page resets the sample queues.</p>
       </div>
     </section>
   )
