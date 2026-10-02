@@ -1,0 +1,28 @@
+.queue-management__header { margin: 1.5rem 0; }
+.queue-management__header .eyebrow { margin-bottom: 0.5rem; }
+.queue-management__header h1 { margin-bottom: 0.5rem; }
+.queue-management__header h2 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+.queue-management__header p:last-child { color: var(--color-muted); margin: 0; }
+.queue-management__summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.queue-management__summary h3 { margin: 0; font-size: 1.125rem; }
+.queue-management__summary span { color: var(--color-muted); }
+.queue-management__table-wrapper { overflow-x: auto; }
+.queue-management table { width: 100%; border-collapse: collapse; text-align: left; }
+.queue-management caption { text-align: left; color: var(--color-muted); font-size: 0.875rem; padding-bottom: 0.75rem; }
+.queue-management th,
+.queue-management td { padding: 1rem 0.75rem; border-bottom: 1px solid var(--color-border); }
+.queue-management thead { background: #f4f6fa; }
+.queue-management tbody th { font-weight: 600; min-width: 150px; }
+.queue-management__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; min-width: 220px; }
+.queue-management__actions button { padding: 0.5rem 0.75rem; font-size: 0.875rem; }
+.queue-management__empty { text-align: center; color: var(--color-muted); }
+.queue-management__note { color: var(--color-muted); font-size: 0.875rem; margin: 1rem 0 0; }
+@media (max-width: 600px) {
+  .queue-management .card { padding: 1rem; }
+  .queue-management th,
+  .queue-management td { padding: 0.75rem 0.5rem; }
+}
+
+.queue-management__message { min-height: 1.5rem; margin: 1rem 0 0; }
+.queue-management button:disabled:hover { background: var(--color-primary); }
+.queue-management .button-secondary:disabled:hover { background: white; }
