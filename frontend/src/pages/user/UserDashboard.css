@@ -124,6 +124,31 @@
   color: var(--color-error);
 }
 
+.dashboard-badge-unread {
+  margin-left: 0.5rem;
+  background: var(--color-primary);
+  color: white;
+  vertical-align: middle;
+}
+
+.dashboard-notifications-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-notifications-header h2 {
+  margin: 0;
+}
+
+.dashboard-mark-all {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+}
+
 .dashboard-service-details {
   display: flex;
   flex-wrap: wrap;
