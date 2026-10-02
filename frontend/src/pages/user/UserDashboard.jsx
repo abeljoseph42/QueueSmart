@@ -1,5 +1,9 @@
 import { Link } from 'react-router-dom'
-import { currentQueue, recentNotifications } from './userDashboardData'
+import {
+  availableServices,
+  currentQueue,
+  recentNotifications,
+} from './userDashboardData'
 import './UserDashboard.css'
 
 export default function UserDashboard() {
@@ -71,9 +75,46 @@ export default function UserDashboard() {
 
       <section className="card" aria-labelledby="services-heading">
         <h2 id="services-heading">Available services</h2>
-        <p className="dashboard-empty">
-          Services you can line up for will be listed here.
-        </p>
+
+        <ul className="dashboard-services">
+          {availableServices.map((service) => (
+            <li key={service.id} className="dashboard-service">
+              <div className="dashboard-service-heading">
+                <h3>{service.name}</h3>
+                <span
+                  className={
+                    service.isOpen
+                      ? 'dashboard-badge dashboard-badge-open'
+                      : 'dashboard-badge dashboard-badge-closed'
+                  }
+                >
+                  {service.isOpen ? 'Open' : 'Closed'}
+                </span>
+              </div>
+
+              <p className="dashboard-service-description">
+                {service.description}
+              </p>
+
+              {service.isOpen ? (
+                <dl className="dashboard-service-details">
+                  <div>
+                    <dt>In queue</dt>
+                    <dd>{service.peopleWaiting} waiting</dd>
+                  </div>
+                  <div>
+                    <dt>Estimated wait</dt>
+                    <dd>{service.estimatedWaitMinutes} min</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="dashboard-empty">
+                  This queue is not accepting new people right now.
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
       </section>
     </div>
   )
