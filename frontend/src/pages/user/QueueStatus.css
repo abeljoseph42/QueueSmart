@@ -130,3 +130,56 @@
     font-size: 0.8rem;
   }
 }
+
+
+/* ---------- Section 4: progress simulation ---------- */
+
+.queue-status-badge.is-almost {
+  background: #eaf0fc;
+  color: var(--color-primary);
+}
+
+.queue-status-badge.is-served {
+  background: #e3f4ea;
+  color: var(--color-success);
+}
+
+.queue-status-update {
+  margin: 0 0 1.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  background: #fff4e0;
+  color: #9a5b00;
+}
+
+.queue-status-update.is-almost {
+  background: #eaf0fc;
+  color: var(--color-primary);
+}
+
+.queue-status-update.is-served {
+  background: #e3f4ea;
+  color: var(--color-success);
+}
+
+.queue-status-demo {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius);
+}
+
+.queue-status-demo-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.queue-status-demo-text {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--color-muted);
+}
