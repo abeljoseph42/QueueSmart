@@ -148,11 +148,6 @@ export default function ServiceManagement() {
         <p>Create and update the services available in QueueSmart.</p>
       </header>
 
-      <p className="service-demo-note">
-        Demo services are stored for this page session. Refreshing restores
-        the original list.
-      </p>
-
       <div className="service-management-grid">
         <section className="card" aria-labelledby="service-form-heading">
           <h2 id="service-form-heading">
@@ -173,7 +168,7 @@ export default function ServiceManagement() {
 
           <form noValidate onSubmit={handleSubmit}>
             <div className="form-field">
-              <label htmlFor="service-name">Service name</label>
+              <label htmlFor="service-name"> Service name <span className="service-required" aria-hidden="true">*</span></label>
               <input
                 ref={nameInputRef}
                 id="service-name"
@@ -192,7 +187,7 @@ export default function ServiceManagement() {
               />
 
               <p id="service-name-hint" className="service-field-hint">
-                Required. Maximum 100 characters.
+                Maximum 100 characters.
               </p>
 
               <FieldError
@@ -202,7 +197,7 @@ export default function ServiceManagement() {
             </div>
 
             <div className="form-field">
-              <label htmlFor="service-description">Description</label>
+              <label htmlFor="service-description">Description <span className="service-required" aria-hidden="true">*</span></label>
               <textarea
                 id="service-description"
                 name="description"
@@ -212,18 +207,10 @@ export default function ServiceManagement() {
                 required
                 aria-invalid={Boolean(errors.description)}
                 aria-describedby={
-                  errors.description
-                    ? 'service-description-hint service-description-error'
-                    : 'service-description-hint'
+                    errors.description ? 'service-description-error' : 
+                    undefined
                 }
               />
-
-              <p
-                id="service-description-hint"
-                className="service-field-hint"
-              >
-                Required.
-              </p>
 
               <FieldError
                 id="service-description-error"
@@ -232,9 +219,7 @@ export default function ServiceManagement() {
             </div>
 
             <div className="form-field">
-              <label htmlFor="service-duration">
-                Expected duration (minutes)
-              </label>
+              <label htmlFor="service-duration">Expected duration (minutes){' '}<span className="service-required" aria-hidden="true">*</span></label>
               <input
                 id="service-duration"
                 name="expectedDuration"
@@ -247,15 +232,10 @@ export default function ServiceManagement() {
                 required
                 aria-invalid={Boolean(errors.expectedDuration)}
                 aria-describedby={
-                  errors.expectedDuration
-                    ? 'service-duration-hint service-duration-error'
-                    : 'service-duration-hint'
+                    errors.expectedDuration ? 'service-duration-error' : 
+                    undefined
                 }
               />
-
-              <p id="service-duration-hint" className="service-field-hint">
-                Required. Enter a positive whole number of minutes.
-              </p>
 
               <FieldError
                 id="service-duration-error"

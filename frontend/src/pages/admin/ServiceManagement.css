@@ -112,10 +112,8 @@
   }
 }
 
-.service-demo-note {
-  margin: 0 0 1.5rem;
-  color: var(--color-muted);
-  font-size: 0.875rem;
+.service-required {
+  color: var(--color-error);
 }
 
 .service-form-actions {
