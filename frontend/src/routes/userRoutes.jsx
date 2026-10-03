@@ -2,6 +2,9 @@ import PlaceholderPage from '../components/common/PlaceholderPage'
 import History from '../pages/user/History'
 import UserDashboard from '../pages/user/UserDashboard'
 
+import JoinQueue from '../pages/user/JoinQueue'
+import QueueStatus from '../pages/user/QueueStatus'
+
 export const userRoutes = [
   {
     path: '/dashboard',
@@ -9,11 +12,11 @@ export const userRoutes = [
   },
   {
     path: '/join-queue',
-    element: <PlaceholderPage title="Join Queue" />,
+    element: <JoinQueue />,
   },
   {
     path: '/queue-status',
-    element: <PlaceholderPage title="Queue Status" />,
+    element: <QueueStatus />,
   },
   {
     path: '/history',
