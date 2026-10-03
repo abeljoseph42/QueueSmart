@@ -113,10 +113,6 @@ export default function Register() {
           Already have an account? <Link to="/login">Log in</Link>
         </p>
 
-        <p className="auth-demo-note">
-          Demo only. This form checks your inputs and returns you to Login.
-          No account is created and no password is stored.
-        </p>
       </div>
     </section>
   )

@@ -45,13 +45,6 @@
   font-weight: 600;
 }
 
-.auth-demo-note {
-  margin: 1rem 0 0;
-  color: var(--color-muted);
-  font-size: 0.875rem;
-  text-align: center;
-}
-
 @media (max-width: 600px) {
   .auth-screen {
     margin: 0.5rem auto;

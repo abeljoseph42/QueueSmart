@@ -10,7 +10,6 @@ export default function Login() {
 
   const [email, setEmail] = useState(registeredEmail)
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('user')
   const [errors, setErrors] = useState({})
 
   function handleSubmit(event) {
@@ -25,8 +24,8 @@ export default function Login() {
       return
     }
 
-    navigate(role === 'admin' ? '/admin' : '/dashboard', {
-      replace: true,
+    navigate('/dashboard', {
+        replace: true,
     })
   }
 
@@ -46,7 +45,7 @@ export default function Login() {
 
         {registeredEmail && (
           <p className="auth-success" role="status">
-            Registration form completed successfully. Try the demo login below.
+            Registration complete. Please log in.
           </p>
         )}
 
@@ -103,20 +102,6 @@ export default function Login() {
             )}
           </div>
 
-          <div className="form-field">
-            <label htmlFor="login-role">Demo view</label>
-            <select
-              id="login-role"
-              name="role"
-              value={role}
-              onChange={(event) => setRole(event.target.value)}
-              aria-describedby="login-demo-note"
-            >
-              <option value="user">User dashboard</option>
-              <option value="admin">Admin dashboard</option>
-            </select>
-          </div>
-
           <button type="submit" className="auth-submit">
             Log in
           </button>
@@ -126,11 +111,6 @@ export default function Login() {
           New to QueueSmart? <Link to="/register">Create an account</Link>
         </p>
 
-        <p id="login-demo-note" className="auth-demo-note">
-          Demo only. Any valid email and password of at least 8 characters
-          will open the selected dashboard. Credentials are not verified
-          or stored.
-        </p>
       </div>
     </section>
   )
