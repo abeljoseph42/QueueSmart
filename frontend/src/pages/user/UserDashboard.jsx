@@ -1,9 +1,8 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  availableServices,
-  currentQueue,
-  recentNotifications,
-} from './userDashboardData'
+import NotificationList from '../../components/notifications/NotificationList'
+import { notifications as initialNotifications } from '../../components/notifications/notificationData'
+import { availableServices, currentQueue } from './userDashboardData'
 import './UserDashboard.css'
 
 function ServiceAction({ service }) {
@@ -41,6 +40,28 @@ function ServiceAction({ service }) {
 }
 
 export default function UserDashboard() {
+  const [notifications, setNotifications] = useState(initialNotifications)
+
+  const unreadCount = notifications.filter(
+    (notification) => !notification.isRead,
+  ).length
+
+  function markAsRead(id) {
+    setNotifications((current) =>
+      current.map((notification) =>
+        notification.id === id
+          ? { ...notification, isRead: true }
+          : notification,
+      ),
+    )
+  }
+
+  function markAllAsRead() {
+    setNotifications((current) =>
+      current.map((notification) => ({ ...notification, isRead: true })),
+    )
+  }
+
   return (
     <div className="dashboard">
       <header className="dashboard-header">
@@ -93,17 +114,31 @@ export default function UserDashboard() {
         </section>
 
         <section className="card" aria-labelledby="notifications-heading">
-          <h2 id="notifications-heading">Notifications</h2>
+          <div className="dashboard-notifications-header">
+            <h2 id="notifications-heading">
+              Notifications
+              {unreadCount > 0 && (
+                <span className="dashboard-badge dashboard-badge-unread">
+                  {unreadCount} unread
+                </span>
+              )}
+            </h2>
 
-          {recentNotifications.length > 0 ? (
-            <ul className="dashboard-notifications">
-              {recentNotifications.map((notification) => (
-                <li key={notification.id}>{notification.message}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="dashboard-empty">No new notifications.</p>
-          )}
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                className="button-secondary dashboard-mark-all"
+                onClick={markAllAsRead}
+              >
+                Mark all as read
+              </button>
+            )}
+          </div>
+
+          <NotificationList
+            notifications={notifications}
+            onMarkAsRead={markAsRead}
+          />
         </section>
       </div>
 
