@@ -1,4 +1,5 @@
 import PlaceholderPage from '../components/common/PlaceholderPage'
+import History from '../pages/user/History'
 import UserDashboard from '../pages/user/UserDashboard'
 
 export const userRoutes = [
@@ -16,6 +17,6 @@ export const userRoutes = [
   },
   {
     path: '/history',
-    element: <PlaceholderPage title="History" />,
+    element: <History />,
   },
 ]
