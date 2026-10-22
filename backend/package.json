@@ -1,0 +1,26 @@
+{
+  "name": "queuesmart-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "QueueSmart A3 shared backend foundation",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --runInBand --coverage",
+    "check": "npm run test:coverage"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "jest": "^30.0.0",
+    "supertest": "^7.1.0"
+  }
+}
