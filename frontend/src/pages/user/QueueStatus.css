@@ -131,9 +131,6 @@
   }
 }
 
-
-/* ---------- Section 4: progress simulation ---------- */
-
 .queue-status-badge.is-almost {
   background: #eaf0fc;
   color: var(--color-primary);
@@ -163,23 +160,28 @@
   color: var(--color-success);
 }
 
-.queue-status-demo {
+.queue-status-update.is-error {
+  background: #fde8e6;
+  color: var(--color-error);
+}
+
+.queue-status-tabs {
   margin-bottom: 1.5rem;
-  padding: 1rem 1.25rem;
-  border: 2px dashed var(--color-border);
-  border-radius: var(--radius);
 }
 
-.queue-status-demo-label {
-  margin: 0;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--color-muted);
+.queue-status-empty h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
 }
 
-.queue-status-demo-text {
-  margin: 0.25rem 0 0.75rem;
-  color: var(--color-muted);
+.queue-status-empty .queue-status-subtitle {
+  margin-bottom: 1rem;
+}
+
+.queue-status-leave {
+  background: var(--color-error);
+}
+
+.queue-status-leave:hover {
+  background: #8f1c13;
 }
