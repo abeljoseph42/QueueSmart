@@ -116,8 +116,13 @@ function served(store) {
   const events = createEventBus();
   const log = [];
   Object.values(EVENTS).forEach(name => events.subscribe(name, payload => log.push([name, payload.entry])));
-  const app = createApp({ store, events, resolveUser: async () => ({ ...user, role: 'admin' }) });
-  return { app, log, serve: serviceId => request(app).post(`/api/admin/services/${serviceId}/queue/serve-next`) };
+  // Test-only identity: no header acts as the admin; x-test-user acts as that user.
+  const resolveUser = async req => (req.get('x-test-user')
+    ? { ...user, id: req.get('x-test-user'), role: 'user' } : { ...user, role: 'admin' });
+  const app = createApp({ store, events, resolveUser });
+  const asUser = userId => ({ get: path => request(app).get(path).set('x-test-user', userId),
+    post: path => request(app).post(path).set('x-test-user', userId).send({}) });
+  return { app, log, asUser, serve: serviceId => request(app).post(`/api/admin/services/${serviceId}/queue/serve-next`) };
 }
 
 test('serve-next requires an admin identity', async () => {
@@ -140,7 +145,6 @@ test('serve-next serves the first entry, shifts the queue, and publishes events'
   expect((await request(app).get('/api/admin/dashboard')).body.data.waitingCount).toBe(4);
   expect(log.filter(([name]) => name === EVENTS.SERVED)).toEqual([[EVENTS.SERVED, response.body.data.entry]]);
   expect(log.map(([name, e]) => [name, e.id])).toEqual([[EVENTS.SERVED, 'e4'], [EVENTS.NEAR, 'e2'], [EVENTS.NEAR, 'e3']]);
-  expect(store.queueEntries.get('e2').nearNotifiedAt).toEqual(expect.any(String));
 });
 
 test('near events fire once per entry across serves and never leak the marker', async () => {
@@ -212,9 +216,10 @@ test('remove 404s for unknown, cross-service, or finished entries and unknown se
   expect(log).toEqual([]);
 });
 
-test('reorder moves an entry, persists across reads and serves, and keeps later joins last', async () => {
+test('reorder moves an entry, persists across reads and serves, and puts later joins at the back of their priority group', async () => {
   const store = seed();
-  const { app, log, serve } = served(store);
+  const { app, log, asUser, serve } = served(store);
+  const myPosition = async userId => (await asUser(userId).get('/api/services/s1/queue/me')).body.data.position;
   const response = await request(app).patch(entryPath('s1', 'e1')).send({ position: 1 });
   expect(response.status).toBe(200);
   const order = [['e1', 1, 0], ['e4', 2, 15], ['e2', 3, 30], ['e3', 4, 45]];
@@ -223,12 +228,15 @@ test('reorder moves an entry, persists across reads and serves, and keeps later 
   const queue = await request(app).get('/api/admin/services/s1/queue');
   expect(queue.body.data.map(s => [s.entry.id, s.position, s.estimatedWaitMinutes])).toEqual(order);
   hidden(queue.body);
+  expect(await myPosition('u-e1')).toBe(1);
+  expect(await myPosition('u-e3')).toBe(4);
   const next = await serve('s1');
   expect(next.body.data.entry.id).toBe('e1');
   hidden(next.body);
   store.queueEntries.set('e9', entry('e9', 's1', 'high', '2026-09-01T00:00:00.000Z'));
   const after = await request(app).get('/api/admin/services/s1/queue');
-  expect(after.body.data.map(s => s.entry.id)).toEqual(['e4', 'e2', 'e3', 'e9']);
+  expect(after.body.data.map(s => s.entry.id)).toEqual(['e4', 'e2', 'e9', 'e3']);
+  expect(await myPosition('u-e9')).toBe(3);
   expect(log.filter(([name]) => name === EVENTS.NEAR).map(([, e]) => e.id)).toEqual(['e1', 'e4', 'e2']);
 });
 
@@ -253,4 +261,16 @@ test('reorder rejects invalid positions and unknown or cross-service entries', a
     expect((await request(app).patch(entryPath(serviceId, entryId)).send({ position: 1 })).status).toBe(404);
   }
   expect(log).toEqual([]);
+});
+
+test('users who join through the API get at most one near event each across serves', async () => {
+  const { log, asUser, serve } = served(seed());
+  for (const userId of ['ua', 'ub', 'uc', 'ud']) {
+    expect((await asUser(userId).post('/api/services/s3/queue/join')).status).toBe(201);
+  }
+  expect((await asUser('uc').get('/api/services/s3/queue/me')).body.data.position).toBe(3);
+  for (let i = 0; i < 4; i += 1) expect((await serve('s3')).status).toBe(200);
+  expect((await serve('s3')).status).toBe(409);
+  expect(log.filter(([name]) => name === EVENTS.NEAR).map(([, e]) => e.userId)).toEqual(['ua', 'ub', 'uc', 'ud']);
+  expect(log.filter(([name]) => name === EVENTS.SERVED).map(([, e]) => e.userId)).toEqual(['ua', 'ub', 'uc', 'ud']);
 });

@@ -4,7 +4,7 @@ const { validate } = require('../../middleware/validate');
 const { requireRole } = require('../../middleware/auth');
 const { ApiError } = require('../../shared/errors');
 const { EVENTS } = require('../../shared/events');
-const { getOrderedWaiting, notifyNear } = require('./queueView');
+const { orderedQueue: getOrderedWaiting, checkNearEvents: notifyNear, moveEntry } = require('../bryan/queueService');
 module.exports = function createHeeraRouter({ auth, store, events }) {
   const router = Router();
   router.use('/admin', auth, requireRole('admin'));
@@ -17,10 +17,8 @@ module.exports = function createHeeraRouter({ auth, store, events }) {
       openServiceCount: services.filter(service => service.isOpen === true).length,
     }) });
   });
-  router.get('/admin/services/:serviceId/queue', validate(c.serviceParams, 'params'), (req, res, next) => {
-    const { serviceId } = req.validated.params;
-    if (!store.services.has(serviceId)) return next(new ApiError(404, 'NOT_FOUND', 'Service not found.'));
-    res.json({ data: getOrderedWaiting(store, serviceId) });
+  router.get('/admin/services/:serviceId/queue', validate(c.serviceParams, 'params'), (req, res) => {
+    res.json({ data: getOrderedWaiting(store, req.validated.params.serviceId) });
   });
   router.patch('/admin/services/:serviceId/queue', validate(c.serviceParams, 'params'), validate(c.queueState), (req, res, next) => {
     const { serviceId } = req.validated.params;
@@ -32,7 +30,6 @@ module.exports = function createHeeraRouter({ auth, store, events }) {
   });
   router.post('/admin/services/:serviceId/queue/serve-next', validate(c.serviceParams, 'params'), (req, res, next) => {
     const { serviceId } = req.validated.params;
-    if (!store.services.has(serviceId)) return next(new ApiError(404, 'NOT_FOUND', 'Service not found.'));
     const [first] = getOrderedWaiting(store, serviceId);
     if (!first) return next(new ApiError(409, 'CONFLICT', 'Queue is empty.'));
     const updated = { ...store.queueEntries.get(first.entry.id), status: 'served' };
@@ -51,15 +48,9 @@ module.exports = function createHeeraRouter({ auth, store, events }) {
   };
   router.patch('/admin/services/:serviceId/queue/:entryId', validate(c.entryParams, 'params'), validate(c.reorder), (req, res) => {
     const { serviceId, entryId } = req.validated.params;
-    findWaiting(req.validated.params);
-    const ids = getOrderedWaiting(store, serviceId).map(({ entry }) => entry.id).filter(id => id !== entryId);
-    const { position } = req.validated.body;
-    if (position > ids.length + 1) throw new ApiError(400, 'VALIDATION_ERROR', 'Request validation failed.',
-      [{ path: 'position', message: `Position must be between 1 and ${ids.length + 1}.` }]);
-    ids.splice(position - 1, 0, entryId);
-    ids.forEach((id, i) => store.queueEntries.set(id, { ...store.queueEntries.get(id), manualOrder: i + 1 }));
+    const queue = moveEntry(store, serviceId, entryId, req.validated.body.position);
     notifyNear(store, events, serviceId);
-    res.json({ data: getOrderedWaiting(store, serviceId) });
+    res.json({ data: queue });
   });
   router.delete('/admin/services/:serviceId/queue/:entryId', validate(c.entryParams, 'params'), (req, res) => {
     const updated = { ...findWaiting(req.validated.params), status: 'removed' };
