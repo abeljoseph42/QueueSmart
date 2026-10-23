@@ -1,10 +1,12 @@
 const { Router } = require('express');
-const { notImplemented } = require('../../shared/errors');
 const { listNotifications } = require('./notifications');
 const { listHistory } = require('./history');
+const { getDashboard } = require('./dashboard');
 module.exports = function createAbelRouter({ auth, store, events }) {
   const router = Router();
-  router.get('/me/dashboard', auth, notImplemented('User dashboard'));
+  router.get('/me/dashboard', auth, (req, res) => {
+    res.json({ data: getDashboard(store, req.user.id) });
+  });
   router.get('/me/history', auth, (req, res) => {
     res.json({ data: listHistory(store, req.user.id) });
   });
