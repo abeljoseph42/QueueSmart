@@ -3,7 +3,6 @@ const { Router } = require('express');
 const c = require('../../shared/contracts');
 const { validate } = require('../../middleware/validate');
 const { requireRole } = require('../../middleware/auth');
-const { notImplemented } = require('../../shared/errors');
 module.exports = function createNikRouter({
   auth,
   store,
@@ -45,7 +44,20 @@ module.exports = function createNikRouter({
       res.status(201).json({ data: service });
     }
   );
-  router.patch('/services/:serviceId', auth, requireRole('admin'), validate(c.serviceParams, 'params'),
-    validate(c.updateService), notImplemented('Service editing'));
+    router.patch(
+    '/services/:serviceId',
+    auth,
+    requireRole('admin'),
+    validate(c.serviceParams, 'params'),
+    validate(c.updateService),
+    (req, res) => {
+      const service = serviceManager.updateService(
+        req.validated.params.serviceId,
+        req.validated.body
+      );
+
+      res.json({ data: service });
+    }
+  );
   return router;
 };

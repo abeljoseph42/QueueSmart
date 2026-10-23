@@ -56,7 +56,7 @@ test('service writes require admin before validation', async () => {
   expect((await request(as('admin')).post('/api/services').send(validService)).status).toBe(201);
   expect((await request(as('admin')).post('/api/services').send({ ...validService, expectedDurationMinutes: '10' })).status).toBe(400);
   expect((await request(as('admin')).patch('/api/services/s1').send({})).status).toBe(400);
-  expect((await request(as('admin')).patch('/api/services/s1').send({ name: 'New name' })).status).toBe(501);
+  expect((await request(as('admin')).patch('/api/services/s1').send({ name: 'New name' })).status).toBe(404);
 });
 
 const userRoutes = [
