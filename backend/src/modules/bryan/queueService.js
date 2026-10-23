@@ -82,7 +82,8 @@ function moveEntry(store, serviceId, entryId, newPosition) {
   const from = ordered.findIndex(e => e.id === entryId);
   if (from < 0) throw new ApiError(404, 'NOT_FOUND', 'Queue entry not found in this service.');
   if (!Number.isInteger(newPosition) || newPosition < 1 || newPosition > ordered.length) {
-    throw new ApiError(400, 'INVALID_POSITION', `Position must be between 1 and ${ordered.length}.`);
+        throw new ApiError(400, 'VALIDATION_ERROR', 'Request validation failed.',
+            [{ path: 'position', message: `Position must be between 1 and ${ordered.length}.` }]);
   }
   const [moved] = ordered.splice(from, 1);
   ordered.splice(newPosition - 1, 0, moved);

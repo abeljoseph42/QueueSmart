@@ -116,7 +116,8 @@ describe('manual reorder (moveEntry)', () => {
     ['a', 'b'].forEach(id => seed(store, { id }));
     for (const position of [0, 3, 1.5]) {
       expect(() => queue.moveEntry(store, 's1', 'a', position))
-        .toThrow(expect.objectContaining({ status: 400, code: 'INVALID_POSITION' }));
+            .toThrow(expect.objectContaining({ status: 400, code: 'VALIDATION_ERROR',
+                details: [{ path: 'position', message: 'Position must be between 1 and 2.' }] }));
     }
   });
 
