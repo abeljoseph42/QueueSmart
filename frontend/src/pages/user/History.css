@@ -89,7 +89,8 @@
   color: var(--color-success);
 }
 
-.history-outcome-left {
+.history-outcome-left,
+.history-outcome-removed {
   background: #fdecea;
   color: var(--color-error);
 }

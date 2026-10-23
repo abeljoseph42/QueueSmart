@@ -1,34 +1,35 @@
 const typeLabels = {
-  'queue-update': 'Queue update',
-  'status-change': 'Status change',
+  'queue.joined': 'Joined',
+  'queue.near': 'Almost ready',
+  'queue.served': 'Served',
+  'queue.left': 'Left queue',
+  'queue.removed': 'Removed',
 }
 
-export default function NotificationItem({ notification, onMarkAsRead }) {
+function timeAgo(createdAt) {
+  const minutes = Math.floor((Date.now() - new Date(createdAt)) / 60000)
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hr ago`
+  return new Date(createdAt).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+export default function NotificationItem({ notification }) {
   return (
-    <li
-      className={
-        notification.isRead
-          ? 'notification'
-          : 'notification notification-unread'
-      }
-    >
+    <li className="notification">
       <div className="notification-meta">
         <span className="notification-type">
           {typeLabels[notification.type]}
         </span>
-        <span className="notification-time">{notification.time}</span>
+        <span className="notification-time">
+          {timeAgo(notification.createdAt)}
+        </span>
       </div>
       <p className="notification-message">{notification.message}</p>
-
-      {!notification.isRead && (
-        <button
-          type="button"
-          className="button-secondary notification-action"
-          onClick={() => onMarkAsRead(notification.id)}
-        >
-          Mark as read
-        </button>
-      )}
     </li>
   )
 }

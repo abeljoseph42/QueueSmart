@@ -1,17 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import NotificationList from '../../components/notifications/NotificationList'
-import { notifications as initialNotifications } from '../../components/notifications/notificationData'
-import { availableServices, currentQueue } from './userDashboardData'
+import { getDashboard } from '../../api/user'
+import { statusLabel } from '../../api/queue'
 import './UserDashboard.css'
 
-function ServiceAction({ service }) {
-  const isCurrentQueue = currentQueue?.serviceId === service.id
+const statusPath = (serviceId) =>
+  `/queue-status?service=${encodeURIComponent(serviceId)}`
 
-  if (isCurrentQueue) {
+function ServiceAction({ service, isQueued }) {
+  if (isQueued) {
     return (
       <Link
-        to="/queue-status"
+        to={statusPath(service.id)}
         className="button dashboard-service-action"
         aria-label={`View queue status for ${service.name}`}
       >
@@ -40,67 +41,103 @@ function ServiceAction({ service }) {
 }
 
 export default function UserDashboard() {
-  const [notifications, setNotifications] = useState(initialNotifications)
+  const [dashboard, setDashboard] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [needsLogin, setNeedsLogin] = useState(false)
+  const [error, setError] = useState('')
 
-  const unreadCount = notifications.filter(
-    (notification) => !notification.isRead,
-  ).length
+  useEffect(() => {
+    let active = true
+    getDashboard()
+      .then((data) => {
+        if (active) setDashboard(data)
+      })
+      .catch((err) => {
+        if (!active) return
+        if (err.status === 401) setNeedsLogin(true)
+        else setError(err.message)
+      })
+      .finally(() => {
+        if (active) setIsLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
-  function markAsRead(id) {
-    setNotifications((current) =>
-      current.map((notification) =>
-        notification.id === id
-          ? { ...notification, isRead: true }
-          : notification,
-      ),
+  const header = (
+    <header className="dashboard-header">
+      <p className="eyebrow">QueueSmart</p>
+      <h1>User Dashboard</h1>
+      <p className="dashboard-intro">
+        Track your place in line and browse available services.
+      </p>
+    </header>
+  )
+
+  if (isLoading || !dashboard) {
+    return (
+      <div className="dashboard">
+        {header}
+        <section className="card">
+          {isLoading && <p className="dashboard-empty">Loading your dashboard...</p>}
+          {needsLogin && (
+            <p className="dashboard-empty" role="alert">
+              You are not logged in. <Link to="/login">Log in</Link> to see your dashboard.
+            </p>
+          )}
+          {error && (
+            <p className="dashboard-empty" role="alert">
+              {error}
+            </p>
+          )}
+        </section>
+      </div>
     )
   }
 
-  function markAllAsRead() {
-    setNotifications((current) =>
-      current.map((notification) => ({ ...notification, isRead: true })),
-    )
-  }
+  const { services, queues, notifications } = dashboard
+  const serviceName = (id) =>
+    services.find((service) => service.id === id)?.name ?? 'Service'
+  const queuedIds = new Set(queues.map((queue) => queue.entry.serviceId))
 
   return (
     <div className="dashboard">
-      <header className="dashboard-header">
-        <p className="eyebrow">QueueSmart</p>
-        <h1>User Dashboard</h1>
-        <p className="dashboard-intro">
-          Track your place in line and browse available services.
-        </p>
-      </header>
+      {header}
 
       <div className="dashboard-overview">
         <section className="card" aria-labelledby="current-queue-heading">
-          <h2 id="current-queue-heading">Current queue</h2>
+          <h2 id="current-queue-heading">
+            {queues.length > 1 ? 'Current queues' : 'Current queue'}
+          </h2>
 
-          {currentQueue ? (
-            <>
-              <p className="dashboard-service-name">
-                {currentQueue.serviceName}
-              </p>
+          {queues.length > 0 ? (
+            queues.map((queue) => (
+              <div key={queue.entry.id}>
+                <p className="dashboard-service-name">
+                  {serviceName(queue.entry.serviceId)}
+                </p>
 
-              <dl className="dashboard-stats">
-                <div className="dashboard-stat">
-                  <dt>Status</dt>
-                  <dd>{currentQueue.status}</dd>
-                </div>
-                <div className="dashboard-stat">
-                  <dt>Position</dt>
-                  <dd>#{currentQueue.position}</dd>
-                </div>
-                <div className="dashboard-stat">
-                  <dt>Estimated wait</dt>
-                  <dd>{currentQueue.estimatedWaitMinutes} min</dd>
-                </div>
-              </dl>
+                <dl className="dashboard-stats">
+                  <div className="dashboard-stat">
+                    <dt>Status</dt>
+                    <dd>{statusLabel(queue.position)}</dd>
+                  </div>
+                  <div className="dashboard-stat">
+                    <dt>Position</dt>
+                    <dd>#{queue.position}</dd>
+                  </div>
+                  <div className="dashboard-stat">
+                    <dt>Estimated wait</dt>
+                    <dd>{queue.estimatedWaitMinutes} min</dd>
+                  </div>
+                </dl>
 
-              <Link to="/queue-status" className="button">
-                View queue status
-              </Link>
-            </>
+                <Link to={statusPath(queue.entry.serviceId)} className="button">
+                  View queue status
+                </Link>
+              </div>
+            ))
           ) : (
             <>
               <p className="dashboard-empty">
@@ -115,77 +152,60 @@ export default function UserDashboard() {
 
         <section className="card" aria-labelledby="notifications-heading">
           <div className="dashboard-notifications-header">
-            <h2 id="notifications-heading">
-              Notifications
-              {unreadCount > 0 && (
-                <span className="dashboard-badge dashboard-badge-unread">
-                  {unreadCount} unread
-                </span>
-              )}
-            </h2>
-
-            {unreadCount > 0 && (
-              <button
-                type="button"
-                className="button-secondary dashboard-mark-all"
-                onClick={markAllAsRead}
-              >
-                Mark all as read
-              </button>
-            )}
+            <h2 id="notifications-heading">Notifications</h2>
           </div>
 
-          <NotificationList
-            notifications={notifications}
-            onMarkAsRead={markAsRead}
-          />
+          <NotificationList notifications={notifications} />
         </section>
       </div>
 
       <section className="card" aria-labelledby="services-heading">
         <h2 id="services-heading">Available services</h2>
 
-        <ul className="dashboard-services">
-          {availableServices.map((service) => (
-            <li key={service.id} className="dashboard-service">
-              <div className="dashboard-service-heading">
-                <h3>{service.name}</h3>
-                <span
-                  className={
-                    service.isOpen
-                      ? 'dashboard-badge dashboard-badge-open'
-                      : 'dashboard-badge dashboard-badge-closed'
-                  }
-                >
-                  {service.isOpen ? 'Open' : 'Closed'}
-                </span>
-              </div>
+        {services.length === 0 ? (
+          <p className="dashboard-empty">No services are available yet.</p>
+        ) : (
+          <ul className="dashboard-services">
+            {services.map((service) => (
+              <li key={service.id} className="dashboard-service">
+                <div className="dashboard-service-heading">
+                  <h3>{service.name}</h3>
+                  <span
+                    className={
+                      service.isOpen
+                        ? 'dashboard-badge dashboard-badge-open'
+                        : 'dashboard-badge dashboard-badge-closed'
+                    }
+                  >
+                    {service.isOpen ? 'Open' : 'Closed'}
+                  </span>
+                </div>
 
-              <p className="dashboard-service-description">
-                {service.description}
-              </p>
-
-              {service.isOpen ? (
-                <dl className="dashboard-service-details">
-                  <div>
-                    <dt>In queue</dt>
-                    <dd>{service.peopleWaiting} waiting</dd>
-                  </div>
-                  <div>
-                    <dt>Estimated wait</dt>
-                    <dd>{service.estimatedWaitMinutes} min</dd>
-                  </div>
-                </dl>
-              ) : (
-                <p className="dashboard-empty">
-                  This queue is not accepting new people right now.
+                <p className="dashboard-service-description">
+                  {service.description}
                 </p>
-              )}
 
-              <ServiceAction service={service} />
-            </li>
-          ))}
-        </ul>
+                {service.isOpen ? (
+                  <dl className="dashboard-service-details">
+                    <div>
+                      <dt>Time per person</dt>
+                      <dd>{service.expectedDurationMinutes} min</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="dashboard-empty">
+                    This queue is not accepting new people right now.
+                  </p>
+                )}
+
+                <ServiceAction
+                  service={service}
+                  isQueued={queuedIds.has(service.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   )
