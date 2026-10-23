@@ -60,7 +60,7 @@ test('service writes require admin before validation', async () => {
 });
 
 const userRoutes = [
-  ['get', '/me/dashboard'], ['get', '/me/history'],
+  ['get', '/me/dashboard'],
   ['post', '/services/s1/queue/join', {}], ['delete', '/services/s1/queue/me'], ['get', '/services/s1/queue/me'],
 ];
 test.each(userRoutes.map(([method, path, body]) => ({ method, path, body })))

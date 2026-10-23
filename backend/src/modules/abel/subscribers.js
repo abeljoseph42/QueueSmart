@@ -1,8 +1,9 @@
 const { EVENTS } = require('../../shared/events');
 const { notificationHandlers } = require('./notifications');
+const { historyHandlers } = require('./history');
 
 // Each handler set maps an event name to ({ entry }, store) => void.
-const defaultHandlerSets = [notificationHandlers];
+const defaultHandlerSets = [notificationHandlers, historyHandlers];
 const active = new WeakMap();
 
 function initQueueSubscribers({ store, events }, handlerSets = defaultHandlerSets) {
