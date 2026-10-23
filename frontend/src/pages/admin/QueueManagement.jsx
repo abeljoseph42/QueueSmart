@@ -1,81 +1,69 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { api, describeError } from '../../api/client'
 import './QueueManagement.css'
 
-const serviceNames = {
-  'academic-advising': 'Academic Advising',
-  'financial-aid': 'Financial Aid',
-  'technical-support': 'Technical Support',
-  'student-services': 'Student Services',
+async function loadQueue(requestedId) {
+  try {
+    const services = await api('/services')
+    const service = requestedId ? services.find((item) => item.id === requestedId) : services[0]
+    if (!service) return { loading: false, error: '', service: null, queue: [], noServices: services.length === 0 }
+    const queue = await api(`/admin/services/${encodeURIComponent(service.id)}/queue`)
+    return { loading: false, error: '', service, queue, noServices: false }
+  } catch (error) {
+    return { loading: false, error: describeError(error), service: null, queue: [], noServices: false }
+  }
 }
-
-const academicQueue = [
-  { id: 1, name: 'Sarah Johnson', waitTime: 14 },
-  { id: 2, name: 'Mike Smith', waitTime: 10 },
-  { id: 3, name: 'John Davis', waitTime: 7 },
-  { id: 4, name: 'Emily Brown', waitTime: 4 },
-]
 
 export default function QueueManagement() {
   const [searchParams] = useSearchParams()
-  const serviceId = searchParams.get('service') ?? 'academic-advising'
-  const serviceName = Object.hasOwn(serviceNames, serviceId) ? serviceNames[serviceId] : null
-  const [queues, setQueues] = useState({
-    'academic-advising': { users: academicQueue, message: '' },
-  })
-  const queueState = queues[serviceId] ?? { users: [], message: '' }
-  const queue = queueState.users
+  const requestedId = searchParams.get('service')
+  const [state, setState] = useState({ loading: true, error: '', service: null, queue: [], noServices: false })
+  const [notice, setNotice] = useState({ text: '', error: false })
+  const [busy, setBusy] = useState(false)
+  const { loading, error, service, queue, noServices } = state
 
-  function moveUser(userId, direction) {
-    setQueues((current) => {
-      const state = current[serviceId]
-      if (!state) return current
-      const index = state.users.findIndex((user) => user.id === userId)
-      const nextIndex = index + direction
-      if (index < 0 || nextIndex < 0 || nextIndex >= state.users.length) return current
-      const users = [...state.users]
-      ;[users[index], users[nextIndex]] = [users[nextIndex], users[index]]
-      return {
-        ...current,
-        [serviceId]: { users, message: `${users[nextIndex].name} moved to position ${nextIndex + 1}.` },
-      }
-    })
+  useEffect(() => {
+    let active = true
+    loadQueue(requestedId).then((next) => { if (active) setState(next) })
+    return () => { active = false }
+  }, [requestedId])
+
+  async function run(action, describeSuccess) {
+    setBusy(true)
+    try {
+      setNotice({ text: describeSuccess(await action()), error: false })
+    } catch (actionError) {
+      setNotice({ text: describeError(actionError), error: true })
+    } finally {
+      setState(await loadQueue(requestedId))
+      setBusy(false)
+    }
   }
 
-  function removeUser(userId) {
-    setQueues((current) => {
-      const state = current[serviceId]
-      const user = state?.users.find((entry) => entry.id === userId)
-      if (!user) return current
-      return {
-        ...current,
-        [serviceId]: {
-          users: state.users.filter((entry) => entry.id !== userId),
-          message: `${user.name} has been removed from the queue.`,
-        },
-      }
-    })
+  const queuePath = (suffix = '') => `/admin/services/${encodeURIComponent(service.id)}/queue${suffix}`
+  const entryPath = (entryId) => queuePath(`/${encodeURIComponent(entryId)}`)
+
+  const toggleOpen = () => run(() => api(queuePath(), { method: 'PATCH', body: { isOpen: !service.isOpen } }),
+    (updated) => `Queue is now ${updated.isOpen ? 'open' : 'closed'}.`)
+  const serveNext = () => run(() => api(queuePath('/serve-next'), { method: 'POST' }),
+    ({ entry }) => `${entry.userId} has been served.`)
+  const removeEntry = (entry) => run(() => api(entryPath(entry.id), { method: 'DELETE' }),
+    () => `${entry.userId} has been removed from the queue.`)
+  const moveEntry = (entry, position) => run(() => api(entryPath(entry.id), { method: 'PATCH', body: { position } }),
+    () => `${entry.userId} moved to position ${position}.`)
+
+  if (loading) {
+    return <section className="card queue-management" aria-busy="true"><p>Loading queue…</p></section>
   }
 
-  function serveNext() {
-    setQueues((current) => {
-      const state = current[serviceId]
-      if (!state?.users.length) return current
-      return {
-        ...current,
-        [serviceId]: {
-          users: state.users.slice(1),
-          message: `${state.users[0].name} has been served.`,
-        },
-      }
-    })
-  }
-
-  if (!serviceName) {
+  if (error || !service) {
     return (
       <section className="card queue-management">
-        <h1>Service not found</h1>
-        <p>Select a service from the admin dashboard to view its queue.</p>
+        <h1>{error ? 'Queue unavailable' : 'Service not found'}</h1>
+        {error
+          ? <p className="field-error" role="alert">{error}</p>
+          : <p>{noServices ? 'No services have been created yet.' : 'Select a service from the admin dashboard to view its queue.'}</p>}
         <Link to="/admin" className="button">Back to Admin Dashboard</Link>
       </section>
     )
@@ -87,48 +75,50 @@ export default function QueueManagement() {
       <header className="queue-management__header">
         <p className="eyebrow">Administration</p>
         <h1 id="queue-management-heading">Queue Management</h1>
-        <h2>{serviceName}</h2>
-        <p>Sample queue preview for the selected service. Dashboard totals are separate mock summaries.</p>
+        <h2>{service.name}</h2>
+        <p>{service.description}</p>
       </header>
       <div className="card">
         <div className="queue-management__summary">
-          <h3>Waiting list <span>({queue.length})</span></h3>
-          <button type="button" onClick={serveNext} disabled={queue.length === 0}>Serve Next</button>
+          <h3>Waiting list <span>({queue.length})</span> <span>· {service.isOpen ? 'Open' : 'Closed'}</span></h3>
+          <div className="queue-management__actions">
+            <button type="button" className="button-secondary" onClick={toggleOpen} disabled={busy}>{service.isOpen ? 'Close Queue' : 'Open Queue'}</button>
+            <button type="button" onClick={serveNext} disabled={busy || queue.length === 0}>Serve Next</button>
+          </div>
         </div>
-        <div className="queue-management__table-wrapper" role="region" aria-label={`${serviceName} waiting list`} tabIndex={0}>
+        <div className="queue-management__table-wrapper" role="region" aria-label={`${service.name} waiting list`} tabIndex={0}>
           <table>
-            <caption>{serviceName} — sample waiting list</caption>
+            <caption>{service.name} — waiting list</caption>
             <thead>
               <tr>
                 <th scope="col">Position</th>
                 <th scope="col">User</th>
-                <th scope="col">Time Waiting</th>
+                <th scope="col">Estimated Wait</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {queue.map((user, index) => (
-                <tr key={user.id}>
-                  <td>{index + 1}</td>
-                  <th scope="row">{user.name}</th>
-                  <td>{user.waitTime} minutes</td>
+              {queue.map(({ entry, position, estimatedWaitMinutes }) => (
+                <tr key={entry.id}>
+                  <td>{position}</td>
+                  <th scope="row">{entry.userId}</th>
+                  <td>{estimatedWaitMinutes} minutes</td>
                   <td>
                     <div className="queue-management__actions">
-                      <button type="button" className="button-secondary" onClick={() => moveUser(user.id, -1)} disabled={index === 0} aria-label={`Move ${user.name} up`}>Move Up</button>
-                      <button type="button" className="button-secondary" onClick={() => moveUser(user.id, 1)} disabled={index === queue.length - 1} aria-label={`Move ${user.name} down`}>Move Down</button>
-                      <button type="button" className="button-secondary" onClick={() => removeUser(user.id)} aria-label={`Remove ${user.name}`}>Remove</button>
+                      <button type="button" className="button-secondary" onClick={() => moveEntry(entry, position - 1)} disabled={busy || position === 1} aria-label={`Move ${entry.userId} up`}>Move Up</button>
+                      <button type="button" className="button-secondary" onClick={() => moveEntry(entry, position + 1)} disabled={busy || position === queue.length} aria-label={`Move ${entry.userId} down`}>Move Down</button>
+                      <button type="button" className="button-secondary" onClick={() => removeEntry(entry)} disabled={busy} aria-label={`Remove ${entry.userId}`}>Remove</button>
                     </div>
                   </td>
                 </tr>
               ))}
               {queue.length === 0 && (
-                <tr><td colSpan={4} className="queue-management__empty">{serviceId === 'academic-advising' ? 'No one is waiting in this queue.' : 'No sample users have been added for this service.'}</td></tr>
+                <tr><td colSpan={4} className="queue-management__empty">No one is waiting in this queue.</td></tr>
               )}
             </tbody>
           </table>
         </div>
-        <p className="queue-management__message success-message" role="status">{queueState.message}</p>
-        <p className="queue-management__note">These actions are simulated. Reloading the page resets the sample queues.</p>
+        <p className={`queue-management__message ${notice.error ? 'field-error' : 'success-message'}`} role="status">{notice.text}</p>
       </div>
     </section>
   )

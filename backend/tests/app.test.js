@@ -80,7 +80,6 @@ const adminRoutes = [
 test.each(adminRoutes.map(([method, path, body]) => ({ method, path, body })))
   ('$method $path enforces admin role', async ({ method, path, body }) => {
   expect((await request(as('user'))[method](`/api${path}`).send(body)).status).toBe(403);
-  expect((await request(as('admin'))[method](`/api${path}`).send(body)).status).toBe(501);
 });
 test('public service stub and rejected caller-assigned queue priority', async () => {
   expect((await request(createApp()).get('/api/services')).status).toBe(501);

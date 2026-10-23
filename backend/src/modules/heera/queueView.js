@@ -2,8 +2,13 @@ const c = require('../../shared/contracts');
 const { EVENTS } = require('../../shared/events');
 // TEMPORARY stand-in until Bryan's shared order helper lands; swap this for it then.
 const rank = { high: 0, medium: 1, low: 2 };
-const compare = (a, b) => rank[a.priority] - rank[b.priority]
+const byArrival = (a, b) => rank[a.priority] - rank[b.priority]
   || a.joinedAt.localeCompare(b.joinedAt) || a.id.localeCompare(b.id);
+// TEMPORARY manual-order policy until agreed with Bryan: manualOrder is a server-held integer
+// (stripped by queueEntry.parse). Reordered entries come first; later joins follow by arrival.
+const hasOrder = entry => Number.isInteger(entry.manualOrder);
+const compare = (a, b) => hasOrder(b) - hasOrder(a)
+  || (hasOrder(a) ? a.manualOrder - b.manualOrder : byArrival(a, b));
 function getOrderedWaiting(store, serviceId) {
   const service = store.services.get(serviceId);
   return [...store.queueEntries.values()]

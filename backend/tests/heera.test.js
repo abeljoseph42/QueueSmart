@@ -173,3 +173,84 @@ test('serve-next works on a closed service', async () => {
   expect(response.body.data.entry.id).toBe('e8');
   expect(store.queueEntries.get('e8').status).toBe('served');
 });
+
+const entryPath = (serviceId, entryId) => `/api/admin/services/${serviceId}/queue/${entryId}`;
+const hidden = body => expect(JSON.stringify(body)).not.toMatch(/manualOrder|nearNotifiedAt/);
+
+test('remove and reorder require an admin identity', async () => {
+  for (const [method, body] of [['delete'], ['patch', { position: 1 }]]) {
+    expect((await request(createApp({ store: seed() }))[method](entryPath('s1', 'e1')).send(body)).status).toBe(401);
+    expect((await request(as('user', seed()))[method](entryPath('s1', 'e1')).send(body)).status).toBe(403);
+  }
+});
+
+test('remove marks the entry removed, shifts the queue, and notifies promoted entries', async () => {
+  const store = seed();
+  const { app, log } = served(store);
+  const response = await request(app).delete(entryPath('s1', 'e4'));
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({ data: { entry: { ...entry('e4', 's1', 'high', '2026-10-01T09:02:00.000Z'), status: 'removed' } } });
+  expect(store.queueEntries.get('e4').status).toBe('removed');
+  const queue = await request(app).get('/api/admin/services/s1/queue');
+  expect(queue.body.data.map(s => [s.entry.id, s.position, s.estimatedWaitMinutes]))
+    .toEqual([['e2', 1, 0], ['e3', 2, 15], ['e1', 3, 30]]);
+  expect((await request(app).get('/api/admin/dashboard')).body.data.waitingCount).toBe(4);
+  await request(app).delete(entryPath('s1', 'e2'));
+  expect(log.map(([name, e]) => [name, e.id])).toEqual([[EVENTS.REMOVED, 'e4'], [EVENTS.NEAR, 'e2'],
+    [EVENTS.NEAR, 'e3'], [EVENTS.REMOVED, 'e2'], [EVENTS.NEAR, 'e1']]);
+  hidden(response.body);
+});
+
+test('remove 404s for unknown, cross-service, or finished entries and unknown services', async () => {
+  const { app, log } = served(seed());
+  for (const [serviceId, entryId, message] of [['s1', 'nope', 'Queue entry not found.'], ['s1', 'e8', 'Queue entry not found.'],
+    ['s1', 'e5', 'Queue entry not found.'], ['nope', 'e1', 'Service not found.']]) {
+    const response = await request(app).delete(entryPath(serviceId, entryId));
+    expect(response.status).toBe(404);
+    expect(response.body.error).toEqual({ code: 'NOT_FOUND', message });
+  }
+  expect(log).toEqual([]);
+});
+
+test('reorder moves an entry, persists across reads and serves, and keeps later joins last', async () => {
+  const store = seed();
+  const { app, log, serve } = served(store);
+  const response = await request(app).patch(entryPath('s1', 'e1')).send({ position: 1 });
+  expect(response.status).toBe(200);
+  const order = [['e1', 1, 0], ['e4', 2, 15], ['e2', 3, 30], ['e3', 4, 45]];
+  expect(response.body.data.map(s => [s.entry.id, s.position, s.estimatedWaitMinutes])).toEqual(order);
+  hidden(response.body);
+  const queue = await request(app).get('/api/admin/services/s1/queue');
+  expect(queue.body.data.map(s => [s.entry.id, s.position, s.estimatedWaitMinutes])).toEqual(order);
+  hidden(queue.body);
+  const next = await serve('s1');
+  expect(next.body.data.entry.id).toBe('e1');
+  hidden(next.body);
+  store.queueEntries.set('e9', entry('e9', 's1', 'high', '2026-09-01T00:00:00.000Z'));
+  const after = await request(app).get('/api/admin/services/s1/queue');
+  expect(after.body.data.map(s => s.entry.id)).toEqual(['e4', 'e2', 'e3', 'e9']);
+  expect(log.filter(([name]) => name === EVENTS.NEAR).map(([, e]) => e.id)).toEqual(['e1', 'e4', 'e2']);
+});
+
+test('reorder near events go to the new top two once each', async () => {
+  const { app, log } = served(seed());
+  await request(app).patch(entryPath('s1', 'e3')).send({ position: 1 });
+  await request(app).patch(entryPath('s1', 'e1')).send({ position: 2 });
+  await request(app).patch(entryPath('s1', 'e3')).send({ position: 2 });
+  expect(log.map(([name, e]) => [name, e.id])).toEqual([[EVENTS.NEAR, 'e3'], [EVENTS.NEAR, 'e4'], [EVENTS.NEAR, 'e1']]);
+});
+
+test('reorder rejects invalid positions and unknown or cross-service entries', async () => {
+  const { app, log } = served(seed());
+  const tooFar = await request(app).patch(entryPath('s1', 'e1')).send({ position: 5 });
+  expect(tooFar.status).toBe(400);
+  expect(tooFar.body.error).toEqual({ code: 'VALIDATION_ERROR', message: 'Request validation failed.',
+    details: [{ path: 'position', message: 'Position must be between 1 and 4.' }] });
+  for (const position of [0, 1.5, '1']) {
+    expect((await request(app).patch(entryPath('s1', 'e1')).send({ position })).status).toBe(400);
+  }
+  for (const [serviceId, entryId] of [['s1', 'e8'], ['s1', 'nope'], ['s1', 'e5'], ['nope', 'e1']]) {
+    expect((await request(app).patch(entryPath(serviceId, entryId)).send({ position: 1 })).status).toBe(404);
+  }
+  expect(log).toEqual([]);
+});
