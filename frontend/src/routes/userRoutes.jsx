@@ -1,4 +1,3 @@
-import PlaceholderPage from '../components/common/PlaceholderPage'
 import History from '../pages/user/History'
 import UserDashboard from '../pages/user/UserDashboard'
 
