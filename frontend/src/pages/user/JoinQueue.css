@@ -173,3 +173,15 @@
 .join-queue-leave:hover {
   background: #8f1c13;
 }
+
+
+/* ---------- A3: backend integration ---------- */
+
+.join-queue-alert.is-error {
+  background: #fde8e6;
+  color: var(--color-error);
+}
+
+.join-queue-capitalize {
+  text-transform: capitalize;
+}
