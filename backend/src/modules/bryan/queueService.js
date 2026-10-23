@@ -48,4 +48,23 @@ function joinQueue({ store, events }, { serviceId, userId }) {
   return queueStatusFor(store, entry);
 }
 
-module.exports = { findService, findActiveEntry, waitingEntries, queueStatusFor, joinQueue };
+function requireActiveEntry(store, serviceId, userId) {
+  findService(store, serviceId);
+  const entry = findActiveEntry(store, serviceId, userId);
+  if (!entry) throw new ApiError(404, 'NOT_IN_QUEUE', 'You are not waiting in this queue.');
+  return entry;
+}
+
+function getMyStatus({ store }, { serviceId, userId }) {
+  return queueStatusFor(store, requireActiveEntry(store, serviceId, userId));
+}
+
+function leaveQueue({ store, events }, { serviceId, userId }) {
+  const entry = requireActiveEntry(store, serviceId, userId);
+  entry.status = 'left';
+  events.publish(EVENTS.LEFT, { entry: { ...entry } });
+  return { entry: { ...entry } };
+}
+
+module.exports = { findService, findActiveEntry, waitingEntries, queueStatusFor, joinQueue,
+  requireActiveEntry, getMyStatus, leaveQueue };

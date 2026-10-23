@@ -20,11 +20,13 @@ function setup() {
   for (const service of [advising, support, closed]) store.services.set(service.id, { ...service });
   const events = createEventBus();
   const joined = jest.fn();
+  const left = jest.fn();
   events.subscribe(EVENTS.JOINED, joined);
+  events.subscribe(EVENTS.LEFT, left);
   let current = users.u1;
   const app = createApp({ store, events, resolveUser: async () => current });
   const as = userId => { current = users[userId]; return request(app); };
-  return { store, joined, as };
+  return { store, joined, left, as };
 }
 
 describe('POST /services/:serviceId/queue/join', () => {
@@ -105,4 +107,96 @@ describe('POST /services/:serviceId/queue/join', () => {
     const app = createApp();
     expect((await request(app).post('/api/services/s1/queue/join').send({})).status).toBe(401);
   });
+
+
+describe('GET /services/:serviceId/queue/me', () => {
+  test('returns the caller\'s current position and wait', async () => {
+    const { as } = setup();
+    await as('u1').post('/api/services/s1/queue/join').send({});
+    await as('u2').post('/api/services/s1/queue/join').send({});
+    const res = await as('u2').get('/api/services/s1/queue/me');
+    expect(res.status).toBe(200);
+    expect(c.queueStatus.parse(res.body.data)).toEqual(res.body.data);
+    expect(res.body.data.entry.userId).toBe('u2');
+    expect(res.body.data.position).toBe(2);
+    expect(res.body.data.estimatedWaitMinutes).toBe(15);
+  });
+
+  test('returns 404 when the caller is not in the queue', async () => {
+    const { as } = setup();
+    await as('u1').post('/api/services/s1/queue/join').send({});
+    const res = await as('u2').get('/api/services/s1/queue/me');
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_IN_QUEUE');
+  });
+
+  test('returns 404 for an unknown service', async () => {
+    const { as } = setup();
+    const res = await as('u1').get('/api/services/nope/queue/me');
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('DELETE /services/:serviceId/queue/me', () => {
+  test('leaving marks the entry left, publishes queue.left, and removes it from the line', async () => {
+    const { store, left, as } = setup();
+    const mine = (await as('u1').post('/api/services/s1/queue/join').send({})).body.data.entry;
+    await as('u2').post('/api/services/s1/queue/join').send({});
+    const res = await as('u1').delete('/api/services/s1/queue/me');
+    expect(res.status).toBe(200);
+    expect(res.body.data.entry).toMatchObject({ id: mine.id, status: 'left' });
+    expect(store.queueEntries.get(mine.id).status).toBe('left');
+    expect(left).toHaveBeenCalledTimes(1);
+    expect(left).toHaveBeenCalledWith({ entry: res.body.data.entry });
+    expect((await as('u1').get('/api/services/s1/queue/me')).status).toBe(404);
+    const other = await as('u2').get('/api/services/s1/queue/me');
+    expect(other.body.data.position).toBe(1);
+    expect(other.body.data.estimatedWaitMinutes).toBe(0);
+  });
+
+  test('a user cannot leave for someone else', async () => {
+    const { store, left, as } = setup();
+    const mine = (await as('u1').post('/api/services/s1/queue/join').send({})).body.data.entry;
+    const res = await as('u2').delete('/api/services/s1/queue/me');
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_IN_QUEUE');
+    expect(store.queueEntries.get(mine.id).status).toBe('waiting');
+    expect(left).not.toHaveBeenCalled();
+  });
+
+  test('leaving twice returns 404 and publishes only once', async () => {
+    const { left, as } = setup();
+    await as('u1').post('/api/services/s1/queue/join').send({});
+    expect((await as('u1').delete('/api/services/s1/queue/me')).status).toBe(200);
+    expect((await as('u1').delete('/api/services/s1/queue/me')).status).toBe(404);
+    expect(left).toHaveBeenCalledTimes(1);
+  });
+
+  test('can still leave after the queue is closed', async () => {
+    const { store, as } = setup();
+    await as('u1').post('/api/services/s1/queue/join').send({});
+    store.services.get('s1').isOpen = false;
+    expect((await as('u1').delete('/api/services/s1/queue/me')).status).toBe(200);
+  });
+
+  test('leave then rejoin creates a new entry at the back of the line', async () => {
+    const { as } = setup();
+    const first = (await as('u1').post('/api/services/s1/queue/join').send({})).body.data.entry;
+    await as('u2').post('/api/services/s1/queue/join').send({});
+    await as('u1').delete('/api/services/s1/queue/me');
+    const res = await as('u1').post('/api/services/s1/queue/join').send({});
+    expect(res.status).toBe(201);
+    expect(res.body.data.entry.id).not.toBe(first.id);
+    expect(res.body.data.position).toBe(2);
+  });
+
+  test('unknown service returns 404 and unauthenticated callers receive 401', async () => {
+    const { as } = setup();
+    expect((await as('u1').delete('/api/services/nope/queue/me')).status).toBe(404);
+    expect((await request(createApp()).delete('/api/services/s1/queue/me')).status).toBe(401);
+    expect((await request(createApp()).get('/api/services/s1/queue/me')).status).toBe(401);
+  });
+});
+  
 });
