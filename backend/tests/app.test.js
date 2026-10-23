@@ -25,12 +25,12 @@ test('invalid JSON and oversized bodies produce consistent errors', async () => 
 test('registration validates fields and prevents role injection', async () => {
   const app = createApp();
   const data = { name: 'Nik', email: 'nik@example.com', password: 'longpassword' };
-  expect((await request(app).post('/api/auth/register').send(data)).status).toBe(501);
+  expect((await request(app).post('/api/auth/register').send(data)).status).toBe(201);
   const bad = await request(app).post('/api/auth/register').send({ ...data, role: 'admin' });
   expect(bad.status).toBe(400);
   expect(bad.body.error.details).toEqual(expect.any(Array));
   expect((await request(app).post('/api/auth/login').send({ email: 'no', password: 'short' })).status).toBe(400);
-  expect((await request(app).post('/api/auth/login').send({ email: data.email, password: data.password })).status).toBe(501);
+  expect((await request(app).post('/api/auth/login').send({ email: data.email, password: data.password })).status).toBe(200);
 });
 
 test('auth fails closed and ignores browser identity headers', async () => {
