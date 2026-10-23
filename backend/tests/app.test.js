@@ -53,7 +53,7 @@ test('resolver failures are sanitized', async () => {
 test('service writes require admin before validation', async () => {
   expect((await request(createApp()).post('/api/services').send(validService)).status).toBe(401);
   expect((await request(as('user')).post('/api/services').send(validService)).status).toBe(403);
-  expect((await request(as('admin')).post('/api/services').send(validService)).status).toBe(501);
+  expect((await request(as('admin')).post('/api/services').send(validService)).status).toBe(201);
   expect((await request(as('admin')).post('/api/services').send({ ...validService, expectedDurationMinutes: '10' })).status).toBe(400);
   expect((await request(as('admin')).patch('/api/services/s1').send({})).status).toBe(400);
   expect((await request(as('admin')).patch('/api/services/s1').send({ name: 'New name' })).status).toBe(501);
@@ -82,8 +82,8 @@ test.each(adminRoutes.map(([method, path, body]) => ({ method, path, body })))
   expect((await request(as('user'))[method](`/api${path}`).send(body)).status).toBe(403);
   expect((await request(as('admin'))[method](`/api${path}`).send(body)).status).toBe(501);
 });
-test('public service stub and rejected caller-assigned queue priority', async () => {
-  expect((await request(createApp()).get('/api/services')).status).toBe(501);
+test('public service listing and rejected caller-assigned queue priority', async () => {
+  expect((await request(createApp()).get('/api/services')).status).toBe(200);
   const response = await request(as('user')).post('/api/services/s1/queue/join').send({ priority: 'high', userId: 'other' });
   expect(response.status).toBe(400);
 });

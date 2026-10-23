@@ -1,3 +1,4 @@
+const { createServiceManager } = require('./service.service');
 const { Router } = require('express');
 const c = require('../../shared/contracts');
 const { validate } = require('../../middleware/validate');
@@ -10,6 +11,7 @@ module.exports = function createNikRouter({
   authService,
 }) {
   const router = Router();
+    const serviceManager = createServiceManager({ store });
     router.post('/auth/register', validate(c.register), async (req, res) => {
     await authService.register(req.validated.body);
 
@@ -24,8 +26,25 @@ module.exports = function createNikRouter({
     res.json({ data: result });
   });
   router.get('/auth/me', auth, (req, res) => res.json({ data: req.user }));
-  router.get('/services', notImplemented('Service listing'));
-  router.post('/services', auth, requireRole('admin'), validate(c.createService), notImplemented('Service creation'));
+    router.get('/services', (_req, res) => {
+    res.json({
+      data: serviceManager.listServices(),
+    });
+  });
+
+  router.post(
+    '/services',
+    auth,
+    requireRole('admin'),
+    validate(c.createService),
+    (req, res) => {
+      const service = serviceManager.createService(
+        req.validated.body
+      );
+
+      res.status(201).json({ data: service });
+    }
+  );
   router.patch('/services/:serviceId', auth, requireRole('admin'), validate(c.serviceParams, 'params'),
     validate(c.updateService), notImplemented('Service editing'));
   return router;
