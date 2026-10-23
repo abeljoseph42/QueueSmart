@@ -22,3 +22,5 @@
 }
 
 .admin-dashboard__status--closed { background: #f2f4f7; color: var(--color-muted); }
+
+.admin-dashboard__error { margin: 0 0 1.5rem; }
