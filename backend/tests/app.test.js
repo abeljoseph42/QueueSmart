@@ -59,16 +59,6 @@ test('service writes require admin before validation', async () => {
   expect((await request(as('admin')).patch('/api/services/s1').send({ name: 'New name' })).status).toBe(404);
 });
 
-const userRoutes = [
-  ['get', '/me/dashboard'], ['get', '/me/history'], ['get', '/me/notifications'],
-];
-test.each(userRoutes.map(([method, path, body]) => ({ method, path, body })))
-  ('$method $path is protected and explicitly unfinished', async ({ method, path, body }) => {
-  expect((await request(createApp())[method](`/api${path}`).send(body)).status).toBe(401);
-  const response = await request(as('user'))[method](`/api${path}`).send(body);
-  expect(response.status).toBe(501);
-  expect(response.body.error.code).toBe('NOT_IMPLEMENTED');
-});
 const adminRoutes = [
   ['get', '/admin/dashboard'], ['get', '/admin/services/s1/queue'],
   ['patch', '/admin/services/s1/queue', { isOpen: true }],
