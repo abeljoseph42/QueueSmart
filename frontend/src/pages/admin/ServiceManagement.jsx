@@ -1,37 +1,11 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  listServices,
+  createService,
+  updateService,
+} from '../../api/services'
 import { validateService } from './serviceValidation'
 import './ServiceManagement.css'
-
-const initialServices = [
-  {
-    id: 'academic-advising',
-    name: 'Academic Advising',
-    description: 'Get help with course selection and academic planning.',
-    expectedDuration: 15,
-    priority: 'medium',
-  },
-  {
-    id: 'financial-aid',
-    name: 'Financial Aid',
-    description: 'Ask questions about financial aid and scholarships.',
-    expectedDuration: 20,
-    priority: 'high',
-  },
-  {
-    id: 'technical-support',
-    name: 'Technical Support',
-    description: 'Get assistance with accounts, devices, and software.',
-    expectedDuration: 10,
-    priority: 'medium',
-  },
-  {
-    id: 'student-services',
-    name: 'Student Services',
-    description: 'Get assistance with general student inquiries.',
-    expectedDuration: 10,
-    priority: 'low',
-  },
-]
 
 const emptyForm = {
   name: '',
@@ -51,14 +25,42 @@ function FieldError({ id, message }) {
 }
 
 export default function ServiceManagement() {
-  const [services, setServices] = useState(initialServices)
+  const [services, setServices] = useState([])
   const [form, setForm] = useState({ ...emptyForm })
   const [editingId, setEditingId] = useState(null)
   const [errors, setErrors] = useState({})
   const [message, setMessage] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [apiError, setApiError] = useState('')
   const nameInputRef = useRef(null)
 
   const isEditing = editingId !== null
+
+    useEffect(() => {
+    let active = true
+
+    listServices()
+      .then(data => {
+        if (active) {
+          setServices(data)
+        }
+      })
+      .catch(error => {
+        if (active) {
+          setApiError(error.message)
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   function handleChange(event) {
     const { name, value } = event.target
@@ -71,12 +73,16 @@ export default function ServiceManagement() {
     setMessage('')
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
 
+    if (isSubmitting || isLoading) return
+
     const nextErrors = validateService(form)
+
     setErrors(nextErrors)
     setMessage('')
+    setApiError('')
 
     if (Object.keys(nextErrors).length > 0) {
       const firstField = Object.keys(nextErrors)[0]
@@ -84,37 +90,42 @@ export default function ServiceManagement() {
       return
     }
 
-    const serviceDetails = {
-      name: form.name.trim(),
-      description: form.description.trim(),
-      expectedDuration: Number(form.expectedDuration),
-      priority: form.priority,
-    }
+    setIsSubmitting(true)
 
-    if (isEditing) {
-      setServices((current) =>
-        current.map((service) =>
-          service.id === editingId
-            ? { ...service, ...serviceDetails }
-            : service,
-        ),
-      )
+    try {
+      if (isEditing) {
+        const updated = await updateService(editingId, form)
 
-      setMessage(`${serviceDetails.name} was updated successfully.`)
-    } else {
-      const newService = {
-        id: crypto.randomUUID(),
-        ...serviceDetails,
+        setServices(current =>
+          current.map(service =>
+            service.id === updated.id ? updated : service,
+          ),
+        )
+
+        setMessage(`${updated.name} was updated successfully.`)
+      } else {
+        const created = await createService(form)
+
+        setServices(current => [...current, created])
+
+        setMessage(`${created.name} was created successfully.`)
       }
 
-      setServices((current) => [...current, newService])
-      setMessage(`${serviceDetails.name} was created successfully.`)
-    }
+      setForm({ ...emptyForm })
+      setEditingId(null)
+      setErrors({})
+    } catch (error) {
+      const message =
+        error.status === 401
+          ? 'Please log in again before managing services.'
+          : error.status === 403
+            ? 'Only administrators can manage services.'
+            : error.message
 
-    setForm({ ...emptyForm })
-    setEditingId(null)
-    setErrors({})
-    nameInputRef.current?.focus()
+      setApiError(message)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   function handleEdit(service) {
@@ -166,7 +177,26 @@ export default function ServiceManagement() {
             </p>
           )}
 
+          {isLoading && (
+            <p role="status">Loading services…</p>
+          )}
+
+          {apiError && (
+            <p className="field-error" role="alert">
+              {apiError}
+            </p>
+          )}
+
           <form noValidate onSubmit={handleSubmit}>
+            <fieldset
+              disabled={isLoading || isSubmitting}
+              style={{
+                border: 0,
+                padding: 0,
+                margin: 0,
+                minWidth: 0,
+              }}
+            >
             <div className="form-field">
               <label htmlFor="service-name"> Service name <span className="service-required" aria-hidden="true">*</span></label>
               <input
@@ -268,7 +298,11 @@ export default function ServiceManagement() {
 
             <div className="service-form-actions">
               <button type="submit">
-                {isEditing ? 'Save changes' : 'Create service'}
+                {isSubmitting
+                  ? 'Saving…'
+                  : isEditing
+                    ? 'Save changes'
+                    : 'Create service'}
               </button>
 
               {isEditing && (
@@ -281,6 +315,7 @@ export default function ServiceManagement() {
                 </button>
               )}
             </div>
+            </fieldset>
           </form>
         </section>
 
@@ -294,6 +329,10 @@ export default function ServiceManagement() {
               {services.length} services
             </span>
           </div>
+
+          {!isLoading && !apiError && services.length === 0 && (
+            <p>No services are available yet. Create your first service.</p>
+          )}
 
           <ul className="service-list">
             {services.map((service) => (
@@ -322,7 +361,7 @@ export default function ServiceManagement() {
                     className="button-secondary"
                     aria-label={`Edit ${service.name}`}
                     onClick={() => handleEdit(service)}
-                    disabled={isEditing}
+                    disabled={isEditing || isSubmitting || isLoading}
                   >
                     Edit
                   </button>
