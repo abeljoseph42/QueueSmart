@@ -4,6 +4,7 @@ const { createStore } = require('./shared/store');
 const { createEventBus } = require('./shared/events');
 const { requireAuth } = require('./middleware/auth');
 const { notFound, errorHandler } = require('./shared/errors');
+const { initQueueSubscribers } = require('./modules/abel/subscribers');
 const routers = ['nik', 'abel', 'bryan', 'heera'].map(owner => require(`./modules/${owner}/router`));
 function createApp({ store = createStore(), events = createEventBus(), resolveUser,
   frontendOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173' } = {}) {
@@ -15,6 +16,7 @@ function createApp({ store = createStore(), events = createEventBus(), resolveUs
   const context = { store, events, auth: requireAuth(resolveUser) };
   app.locals.store = store;
   app.locals.events = events;
+  app.locals.stopSubscribers = initQueueSubscribers({ store, events });
   routers.forEach(createRouter => app.use('/api', createRouter(context)));
   app.use(notFound);
   app.use(errorHandler);
