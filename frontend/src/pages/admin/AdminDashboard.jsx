@@ -1,26 +1,28 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, describeError } from '../../api/client'
+import { apiRequest } from '../../api/client'
+import { listServices } from '../../api/services'
+import { toFailure } from './adminErrors'
 import './AdminDashboard.css'
 
 async function loadDashboard() {
-  const [metrics, services] = await Promise.allSettled([api('/admin/dashboard'), api('/services')])
+  const [metrics, services] = await Promise.allSettled([apiRequest('/admin/dashboard'), listServices()])
   const list = services.status === 'fulfilled' ? services.value : []
   const lengths = Object.fromEntries(await Promise.all(list.map((service) =>
-    api(`/admin/services/${encodeURIComponent(service.id)}/queue`).then((queue) => [service.id, queue.length], () => [service.id, null]))))
+    apiRequest(`/admin/services/${encodeURIComponent(service.id)}/queue`).then((queue) => [service.id, queue.length], () => [service.id, null]))))
   return {
     loading: false,
     metrics: metrics.status === 'fulfilled' ? metrics.value : null,
-    metricsError: metrics.status === 'rejected' ? describeError(metrics.reason) : '',
+    metricsError: metrics.status === 'rejected' ? toFailure(metrics.reason) : null,
     services: list,
-    servicesError: services.status === 'rejected' ? describeError(services.reason) : '',
+    servicesError: services.status === 'rejected' ? toFailure(services.reason) : null,
     lengths,
   }
 }
 
 export default function AdminDashboard() {
-  const [state, setState] = useState({ loading: true, metrics: null, metricsError: '', services: [], servicesError: '', lengths: {} })
-  const [notice, setNotice] = useState({ text: '', error: false })
+  const [state, setState] = useState({ loading: true, metrics: null, metricsError: null, services: [], servicesError: null, lengths: {} })
+  const [notice, setNotice] = useState({ text: '', error: false, login: false })
   const [busyId, setBusyId] = useState(null)
   const { loading, metrics, metricsError, services, servicesError, lengths } = state
 
@@ -33,10 +35,10 @@ export default function AdminDashboard() {
   async function toggleQueueStatus(service) {
     setBusyId(service.id)
     try {
-      const updated = await api(`/admin/services/${encodeURIComponent(service.id)}/queue`, { method: 'PATCH', body: { isOpen: !service.isOpen } })
-      setNotice({ text: `${updated.name} queue is now ${updated.isOpen ? 'open' : 'closed'}.`, error: false })
+      const updated = await apiRequest(`/admin/services/${encodeURIComponent(service.id)}/queue`, { method: 'PATCH', body: { isOpen: !service.isOpen } })
+      setNotice({ text: `${updated.name} queue is now ${updated.isOpen ? 'open' : 'closed'}.`, error: false, login: false })
     } catch (error) {
-      setNotice({ text: describeError(error), error: true })
+      setNotice({ ...toFailure(error), error: true })
     } finally {
       setBusyId(null)
       setState(await loadDashboard())
@@ -66,11 +68,11 @@ export default function AdminDashboard() {
           <p>{metric(metrics?.serviceCount)}</p>
         </article>
       </section>
-      {metricsError && <p className="field-error admin-dashboard__error" role="alert">{metricsError}</p>}
+      {metricsError && <p className="field-error admin-dashboard__error" role="alert">{metricsError.text}{metricsError.login && <> <Link to="/login">Log in</Link></>}</p>}
       <section aria-labelledby="admin-services-heading">
         <h2 id="admin-services-heading">Services</h2>
         {loading && <p className="admin-dashboard__note">Loading services…</p>}
-        {servicesError && <p className="field-error admin-dashboard__error" role="alert">Services: {servicesError}</p>}
+        {servicesError && <p className="field-error admin-dashboard__error" role="alert">Services: {servicesError.text}{servicesError.login && <> <Link to="/login">Log in</Link></>}</p>}
         {!loading && !servicesError && services.length === 0 && <p className="admin-dashboard__note">No services have been created yet.</p>}
         <div className="admin-dashboard__services">
           {services.map((service) => {
@@ -99,7 +101,7 @@ export default function AdminDashboard() {
             )
           })}
         </div>
-        <p className={`admin-dashboard__note ${notice.error ? 'field-error' : 'success-message'}`} role="status">{notice.text}</p>
+        <p className={`admin-dashboard__note ${notice.error ? 'field-error' : 'success-message'}`} role="status">{notice.text}{notice.login && <> <Link to="/login">Log in</Link></>}</p>
       </section>
     </section>
   )
