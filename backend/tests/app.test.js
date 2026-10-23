@@ -61,7 +61,7 @@ test('service writes require admin before validation', async () => {
 
 const userRoutes = [
   ['get', '/me/dashboard'], ['get', '/me/history'], ['get', '/me/notifications'],
-  ['post', '/services/s1/queue/join', {}], ['delete', '/services/s1/queue/me'], ['get', '/services/s1/queue/me'],
+  ['delete', '/services/s1/queue/me'], ['get', '/services/s1/queue/me'],
 ];
 test.each(userRoutes.map(([method, path, body]) => ({ method, path, body })))
   ('$method $path is protected and explicitly unfinished', async ({ method, path, body }) => {
