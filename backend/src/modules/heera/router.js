@@ -3,7 +3,8 @@ const c = require('../../shared/contracts');
 const { validate } = require('../../middleware/validate');
 const { requireRole } = require('../../middleware/auth');
 const { ApiError, notImplemented } = require('../../shared/errors');
-const { getOrderedWaiting } = require('./queueView');
+const { EVENTS } = require('../../shared/events');
+const { getOrderedWaiting, notifyNear } = require('./queueView');
 module.exports = function createHeeraRouter({ auth, store, events }) {
   const router = Router();
   router.use('/admin', auth, requireRole('admin'));
@@ -29,7 +30,18 @@ module.exports = function createHeeraRouter({ auth, store, events }) {
     store.services.set(serviceId, updated);
     res.json({ data: c.service.parse(updated) });
   });
-  router.post('/admin/services/:serviceId/queue/serve-next', validate(c.serviceParams, 'params'), notImplemented('Serve next'));
+  router.post('/admin/services/:serviceId/queue/serve-next', validate(c.serviceParams, 'params'), (req, res, next) => {
+    const { serviceId } = req.validated.params;
+    if (!store.services.has(serviceId)) return next(new ApiError(404, 'NOT_FOUND', 'Service not found.'));
+    const [first] = getOrderedWaiting(store, serviceId);
+    if (!first) return next(new ApiError(409, 'CONFLICT', 'Queue is empty.'));
+    const updated = { ...store.queueEntries.get(first.entry.id), status: 'served' };
+    store.queueEntries.set(updated.id, updated);
+    const entry = c.queueEntry.parse(updated);
+    events.publish(EVENTS.SERVED, { entry });
+    notifyNear(store, events, serviceId);
+    res.json({ data: { entry } });
+  });
   router.patch('/admin/services/:serviceId/queue/:entryId', validate(c.entryParams, 'params'), validate(c.reorder), notImplemented('Queue reorder'));
   router.delete('/admin/services/:serviceId/queue/:entryId', validate(c.entryParams, 'params'), notImplemented('Queue removal'));
   return router;

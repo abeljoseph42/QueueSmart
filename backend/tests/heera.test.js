@@ -110,3 +110,66 @@ test('PATCH queue rejects unknown services and invalid bodies', async () => {
     expect(response.body.error.code).toBe('VALIDATION_ERROR');
   }
 });
+
+const { EVENTS, createEventBus } = require('../src/shared/events');
+function served(store) {
+  const events = createEventBus();
+  const log = [];
+  Object.values(EVENTS).forEach(name => events.subscribe(name, payload => log.push([name, payload.entry])));
+  const app = createApp({ store, events, resolveUser: async () => ({ ...user, role: 'admin' }) });
+  return { app, log, serve: serviceId => request(app).post(`/api/admin/services/${serviceId}/queue/serve-next`) };
+}
+
+test('serve-next requires an admin identity', async () => {
+  const path = '/api/admin/services/s1/queue/serve-next';
+  expect((await request(createApp({ store: seed() })).post(path)).status).toBe(401);
+  expect((await request(as('user', seed())).post(path)).status).toBe(403);
+});
+
+test('serve-next serves the first entry, shifts the queue, and publishes events', async () => {
+  const store = seed();
+  const { app, log, serve } = served(store);
+  const response = await serve('s1');
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({ data: { entry: { ...entry('e4', 's1', 'high', '2026-10-01T09:02:00.000Z'), status: 'served' } } });
+  expect(store.queueEntries.get('e4').status).toBe('served');
+  const queue = await request(app).get('/api/admin/services/s1/queue');
+  expect(queue.body.data.map(s => [s.entry.id, s.position, s.estimatedWaitMinutes]))
+    .toEqual([['e2', 1, 0], ['e3', 2, 15], ['e1', 3, 30]]);
+  expect(JSON.stringify(queue.body)).not.toContain('nearNotifiedAt');
+  expect((await request(app).get('/api/admin/dashboard')).body.data.waitingCount).toBe(4);
+  expect(log.filter(([name]) => name === EVENTS.SERVED)).toEqual([[EVENTS.SERVED, response.body.data.entry]]);
+  expect(log.map(([name, e]) => [name, e.id])).toEqual([[EVENTS.SERVED, 'e4'], [EVENTS.NEAR, 'e2'], [EVENTS.NEAR, 'e3']]);
+  expect(store.queueEntries.get('e2').nearNotifiedAt).toEqual(expect.any(String));
+});
+
+test('near events fire once per entry across serves and never leak the marker', async () => {
+  const store = seed();
+  const { log, serve } = served(store);
+  await serve('s1');
+  const second = await serve('s1');
+  expect(second.body.data.entry.id).toBe('e2');
+  expect(JSON.stringify(second.body)).not.toContain('nearNotifiedAt');
+  expect(log.filter(([name]) => name === EVENTS.NEAR).map(([, e]) => e.id)).toEqual(['e2', 'e3', 'e1']);
+  log.forEach(([, e]) => expect(e).not.toHaveProperty('nearNotifiedAt'));
+});
+
+test('serve-next rejects empty queues and unknown services without events', async () => {
+  const { log, serve } = served(seed());
+  const empty = await serve('s3');
+  expect(empty.status).toBe(409);
+  expect(empty.body.error).toEqual({ code: 'CONFLICT', message: 'Queue is empty.' });
+  const missing = await serve('nope');
+  expect(missing.status).toBe(404);
+  expect(missing.body.error.code).toBe('NOT_FOUND');
+  expect(log).toEqual([]);
+});
+
+test('serve-next works on a closed service', async () => {
+  const store = seed();
+  const { serve } = served(store);
+  const response = await serve('s2');
+  expect(response.status).toBe(200);
+  expect(response.body.data.entry.id).toBe('e8');
+  expect(store.queueEntries.get('e8').status).toBe('served');
+});
