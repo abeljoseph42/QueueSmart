@@ -67,3 +67,46 @@ test('queue returns 404 for an unknown service and [] for an empty queue', async
   expect(empty.status).toBe(200);
   expect(empty.body).toEqual({ data: [] });
 });
+
+const toggle = (app, serviceId, body) => request(app).patch(`/api/admin/services/${serviceId}/queue`).send(body);
+
+test('PATCH queue requires an admin identity', async () => {
+  expect((await toggle(createApp({ store: seed() }), 's1', { isOpen: false })).status).toBe(401);
+  expect((await toggle(as('user', seed()), 's1', { isOpen: false })).status).toBe(403);
+});
+
+test('closing an open service updates only isOpen and keeps waiting entries', async () => {
+  const store = seed();
+  const app = as('admin', store);
+  const before = { ...store.services.get('s1') };
+  const response = await toggle(app, 's1', { isOpen: false });
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({ data: { ...before, isOpen: false } });
+  expect(store.services.get('s1')).toEqual({ ...before, isOpen: false });
+  const queue = await request(app).get('/api/admin/services/s1/queue');
+  expect(queue.body.data.map(s => s.entry.id)).toEqual(['e4', 'e2', 'e3', 'e1']);
+  expect((await request(app).get('/api/admin/dashboard')).body.data)
+    .toEqual({ serviceCount: 3, waitingCount: 5, openServiceCount: 1 });
+});
+
+test('reopening a closed service', async () => {
+  const store = seed();
+  const app = as('admin', store);
+  const response = await toggle(app, 's2', { isOpen: true });
+  expect(response.status).toBe(200);
+  expect(response.body.data.isOpen).toBe(true);
+  expect(store.services.get('s2').isOpen).toBe(true);
+  expect((await request(app).get('/api/admin/dashboard')).body.data.openServiceCount).toBe(3);
+});
+
+test('PATCH queue rejects unknown services and invalid bodies', async () => {
+  const app = as('admin', seed());
+  const missing = await toggle(app, 'nope', { isOpen: false });
+  expect(missing.status).toBe(404);
+  expect(missing.body.error.code).toBe('NOT_FOUND');
+  for (const body of [{}, { isOpen: 'yes' }, { isOpen: false, name: 'x' }]) {
+    const response = await toggle(app, 's1', body);
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+  }
+});
