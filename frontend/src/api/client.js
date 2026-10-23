@@ -1,42 +1,75 @@
-// The backend allows CORS from the Vite dev origin, so requests go straight to the API.
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001/api'
-// Nik owns token storage: this key must match the one his login code writes.
-const TOKEN_KEY = 'token'
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  'http://localhost:3001/api'
+).replace(/\/$/, '')
 
-export class ApiRequestError extends Error {
-  constructor(message, status, code) {
-    super(message)
-    this.status = status
-    this.code = code
-  }
+const TOKEN_KEY = 'queuesmart.token'
+
+export function saveToken(token) {
+  sessionStorage.setItem(TOKEN_KEY, token)
 }
 
-export async function api(path, { method = 'GET', body } = {}) {
-  const headers = {}
-  const token = localStorage.getItem(TOKEN_KEY)
-  if (token) headers.Authorization = `Bearer ${token}`
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+export function clearSession() {
+  sessionStorage.removeItem(TOKEN_KEY)
+}
+
+export async function apiRequest(
+  path,
+  { method = 'GET', body, authenticated = true } = {},
+) {
+  const headers = new Headers()
+
+  if (body !== undefined) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  if (authenticated) {
+    const token = sessionStorage.getItem(TOKEN_KEY)
+
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+  }
+
   let response
+
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(`${API_BASE_URL}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      ...(body !== undefined
+        ? { body: JSON.stringify(body) }
+        : {}),
     })
   } catch {
-    throw new ApiRequestError('Could not reach the server. Is the backend running?', 0, 'NETWORK_ERROR')
+    throw new Error(
+      'Cannot connect to QueueSmart. Check that the backend is running.',
+    )
   }
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const { code, message } = payload.error ?? {}
-    throw new ApiRequestError(message ?? `Request failed (${response.status}).`, response.status, code)
-  }
-  return payload.data
-}
 
-export function describeError(error) {
-  if (error.status === 401) return 'Log in as an admin to use this page.'
-  if (error.status === 403) return 'You need an admin account to use this page.'
-  if (error.status === 501) return 'Not available yet.'
-  return error.message
+  let payload
+
+  try {
+    payload = await response.json()
+  } catch {
+    throw new Error('The server returned an unexpected response.')
+  }
+
+  if (!response.ok) {
+    if (authenticated && response.status === 401) {
+      clearSession()
+    }
+
+    const error = new Error(
+      payload.error?.message || 'The request failed.',
+    )
+
+    error.status = response.status
+    error.code = payload.error?.code
+    error.details = payload.error?.details
+
+    throw error
+  }
+
+  return payload.data
 }

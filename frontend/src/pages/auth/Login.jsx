@@ -12,11 +12,17 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState({})
 
-  function handleSubmit(event) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [apiError, setApiError] = useState('')
+
+  async function handleSubmit(event) {
     event.preventDefault()
+
+    if (isSubmitting) return
 
     const nextErrors = validateAuth({ email, password })
     setErrors(nextErrors)
+    setApiError('')
 
     if (Object.keys(nextErrors).length > 0) {
       const firstField = nextErrors.email ? 'email' : 'password'
@@ -24,9 +30,32 @@ export default function Login() {
       return
     }
 
-    navigate('/dashboard', {
-        replace: true,
-    })
+    setIsSubmitting(true)
+    clearSession()
+
+    try {
+      const result = await apiRequest('/auth/login', {
+        method: 'POST',
+        authenticated: false,
+        body: {
+          email: email.trim(),
+          password,
+        },
+      })
+
+      saveToken(result.token)
+
+      navigate(
+        result.user.role === 'admin'
+          ? '/admin/services'
+          : '/dashboard',
+        { replace: true },
+      )
+    } catch (error) {
+      setApiError(error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -46,6 +75,12 @@ export default function Login() {
         {registeredEmail && (
           <p className="auth-success" role="status">
             Registration complete. Please log in.
+          </p>
+        )}
+
+        {apiError && (
+          <p className="field-error" role="alert">
+            {apiError}
           </p>
         )}
 
@@ -102,8 +137,12 @@ export default function Login() {
             )}
           </div>
 
-          <button type="submit" className="auth-submit">
-            Log in
+          <button
+            type="submit"
+            className="auth-submit"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Logging in…' : 'Log in'}
           </button>
         </form>
 
@@ -115,3 +154,9 @@ export default function Login() {
     </section>
   )
 }
+
+import {
+  apiRequest,
+  clearSession,
+  saveToken,
+} from '../../api/client'
