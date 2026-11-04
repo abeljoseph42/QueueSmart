@@ -1,4 +1,4 @@
-# QueueSmart A3 backend
+# QueueSmart backend
 
 The Express backend implements the A3 authentication, service, queue, wait-time,
 notification, history, and admin modules. The A2 frontend is connected through
@@ -29,6 +29,7 @@ The start and dev scripts load `.env` when it exists.
 | FRONTEND_ORIGIN | Allowed browser origin; defaults to http://localhost:5173 |
 | DEMO_ADMIN_EMAIL | Optional administrator email |
 | DEMO_ADMIN_PASSWORD | Optional administrator password, 8–128 characters |
+| QUEUESMART_DB_PATH | SQLite path; defaults to data/queuesmart.sqlite relative to backend/ |
 
 Leave both admin variables unset to start without an administrator. Set both to
 valid local values to create the demo admin at startup. Invalid or partial admin
@@ -65,9 +66,17 @@ no logout/revocation endpoint in the current API.
 Routers reuse the same injected dependencies. Tests can inject verified identities
 through `resolveUser`; the running server does not enable a browser identity bypass.
 
-The store contains Maps named users, sessions, services, queueEntries, history,
-and notifications. Everything resets on restart; no persistent database is used.
-Services start open when created. Service editing preserves IDs and queue state.
+The server opens SQLite and applies pending migrations before accepting requests.
+Credentials and profiles are persisted in user_credentials and user_profile.
+The database connection is injected through createApp({ store, db }).
+
+Sessions remain in memory. Services, queue entries, participation history, and
+notifications also remain in memory until their A4 integrations are completed.
+Existing isolated tests may use the in-memory authentication adapter; the running
+server supplies SQLite and does not fall back to memory on database errors.
+
+Services currently start open when created. Service editing preserves IDs and
+queue state.
 
 ## Queue behavior
 
