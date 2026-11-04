@@ -44,6 +44,24 @@ const expectError = (fn, status, code, message) => {
   return caught;
 };
 
+// Starts one worker per job, each with its own connection, and releases them all at once.
+async function race(jobs) {
+  const gate = new SharedArrayBuffer(8);
+  const flag = new Int32Array(gate);
+  const workers = jobs.map(job => new Worker(path.join(__dirname, 'heera-appointments.worker.js'),
+    { workerData: { file, now: NOW, gate, ...job } }));
+  const results = workers.map(worker => new Promise((resolve, reject) => {
+    worker.once('message', resolve);
+    worker.once('error', reject);
+  }));
+  while (Atomics.load(flag, 1) < workers.length) await new Promise(resolve => setTimeout(resolve, 5));
+  Atomics.store(flag, 0, 1);
+  Atomics.notify(flag, 0);
+  const outcomes = await Promise.all(results);
+  await Promise.all(workers.map(worker => worker.terminate()));
+  return outcomes;
+}
+
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queuesmart-heera-'));
   file = path.join(dir, 'test.sqlite');
@@ -221,25 +239,102 @@ describe('create', () => {
   test('concurrent bookings of one slot from separate connections leave exactly one booked', async () => {
     const service = addService();
     const userIds = Array.from({ length: 6 }, () => addUser());
-    const gate = new SharedArrayBuffer(8);
-    const flag = new Int32Array(gate);
     const startsAt = at(120);
-    const workers = userIds.map(userId => new Worker(path.join(__dirname, 'heera-appointments.worker.js'),
-      { workerData: { file, now: NOW, gate, input: { userId, serviceId: service.id, startsAt } } }));
-    const results = workers.map(worker => new Promise((resolve, reject) => {
-      worker.once('message', resolve);
-      worker.once('error', reject);
-    }));
-    while (Atomics.load(flag, 1) < workers.length) await new Promise(resolve => setTimeout(resolve, 5));
-    Atomics.store(flag, 0, 1);
-    Atomics.notify(flag, 0);
-    const outcomes = await Promise.all(results);
-    await Promise.all(workers.map(worker => worker.terminate()));
+    const outcomes = await race(userIds.map(userId => ({ input: { userId, serviceId: service.id, startsAt } })));
 
     expect(outcomes.filter(outcome => outcome.ok)).toHaveLength(1);
     expect(outcomes.filter(outcome => !outcome.ok))
       .toEqual(Array(5).fill({ ok: false, status: 409, code: 'SLOT_CONFLICT' }));
     expect(repo.listByService(service.id)).toEqual([outcomes.find(outcome => outcome.ok).appointment]);
+  }, 20000);
+});
+
+describe('reschedule', () => {
+  test('moves a booked appointment and recomputes its end from the current service duration', () => {
+    const userId = addUser();
+    const service = addService({ expectedDurationMinutes: 30 });
+    const booked = repo.create({ userId, serviceId: service.id, startsAt: at(60) });
+    services.update(service.id, { expectedDurationMinutes: 45 });
+    clock = new Date(at(5));
+    const moved = repo.reschedule(booked.id, { startsAt: at(240) });
+    expect(moved).toEqual({ ...booked, startsAt: at(240), endsAt: at(285), updatedAt: at(5) });
+  });
+
+  test('may overlap its own old time, and frees the old slot', () => {
+    const userId = addUser();
+    const service = addService({ expectedDurationMinutes: 30 });
+    const booked = repo.create({ userId, serviceId: service.id, startsAt: at(60) });
+    expect(repo.reschedule(booked.id, { startsAt: at(75) }).startsAt).toBe(at(75));
+    expect(repo.create({ userId: addUser(), serviceId: service.id, startsAt: at(30) }).endsAt).toBe(at(60));
+  });
+
+  test('follows the booking rules for time window and input', () => {
+    const userId = addUser();
+    const booked = repo.create({ userId, serviceId: addService().id, startsAt: at(60) });
+    for (const startsAt of [NOW, at(MAX_DAYS_AHEAD * 24 * 60 + 1)]) {
+      expectError(() => repo.reschedule(booked.id, { startsAt }), 400, 'VALIDATION_ERROR');
+    }
+    for (const input of [{}, { startsAt: 'later' }, { startsAt: at(90), serviceId: booked.serviceId }]) {
+      expectError(() => repo.reschedule(booked.id, input), 400, 'VALIDATION_ERROR');
+    }
+    const same = expectError(() => repo.reschedule(booked.id, { startsAt: '2026-11-04T10:00:00-06:00' }),
+      400, 'VALIDATION_ERROR');
+    expect(same.details).toEqual([{ path: 'startsAt', message: 'New time must differ from the current time.' }]);
+    expect(repo.getAppointment(booked.id).startsAt).toBe(at(60));
+  });
+
+  test('rejects slots taken for the service or by the same user', () => {
+    const userId = addUser();
+    const service = addService({ expectedDurationMinutes: 30 });
+    const other = addService({ expectedDurationMinutes: 30 });
+    const mine = repo.create({ userId, serviceId: service.id, startsAt: at(60) });
+    repo.create({ userId: addUser(), serviceId: service.id, startsAt: at(180) });
+    repo.create({ userId, serviceId: other.id, startsAt: at(300) });
+    expectError(() => repo.reschedule(mine.id, { startsAt: at(195) }), 409, 'SLOT_CONFLICT',
+      'This time slot is already booked for the service.');
+    expectError(() => repo.reschedule(mine.id, { startsAt: at(310) }), 409, 'SLOT_CONFLICT',
+      'You already have an appointment at this time.');
+    expect(repo.reschedule(mine.id, { startsAt: at(210) }).startsAt).toBe(at(210));
+  });
+
+  test('only booked appointments on active services can move', () => {
+    const userId = addUser();
+    const service = addService();
+    const canceled = repo.create({ userId, serviceId: service.id, startsAt: at(60) });
+    const completed = repo.create({ userId, serviceId: service.id, startsAt: at(120) });
+    const active = repo.create({ userId, serviceId: service.id, startsAt: at(180) });
+    repo.cancel(canceled.id);
+    repo.complete(completed.id);
+    expectError(() => repo.reschedule(canceled.id, { startsAt: at(400) }), 409, 'INVALID_STATUS',
+      'Only booked appointments can be rescheduled; this one is canceled.');
+    expectError(() => repo.reschedule(completed.id, { startsAt: at(400) }), 409, 'INVALID_STATUS');
+    services.update(service.id, { isActive: false });
+    expectError(() => repo.reschedule(active.id, { startsAt: at(400) }), 409, 'SERVICE_INACTIVE');
+  });
+
+  test("a user cannot move someone else's appointment, and unknown ids 404", () => {
+    const booked = repo.create({ userId: addUser(), serviceId: addService().id, startsAt: at(60) });
+    expectError(() => repo.reschedule(booked.id, { startsAt: at(120) }, { userId: addUser() }), 404, 'NOT_FOUND');
+    expectError(() => repo.reschedule(randomUUID(), { startsAt: at(120) }), 404, 'NOT_FOUND');
+    expect(repo.getAppointment(booked.id).startsAt).toBe(at(60));
+  });
+
+  test('concurrent reschedules and a booking into one slot leave exactly one there', async () => {
+    const service = addService();
+    const target = at(600);
+    const jobs = Array.from({ length: 5 }, (_, i) => {
+      const userId = addUser();
+      const booked = repo.create({ userId, serviceId: service.id, startsAt: at(60 * (i + 1)) });
+      return { rescheduleId: booked.id, input: { startsAt: target } };
+    });
+    jobs.push({ input: { userId: addUser(), serviceId: service.id, startsAt: target } });
+    const outcomes = await race(jobs);
+
+    expect(outcomes.filter(outcome => outcome.ok)).toHaveLength(1);
+    expect(outcomes.filter(outcome => !outcome.ok))
+      .toEqual(Array(5).fill({ ok: false, status: 409, code: 'SLOT_CONFLICT' }));
+    const atTarget = repo.listByService(service.id).filter(a => a.startsAt === target && a.status === 'booked');
+    expect(atTarget).toEqual([outcomes.find(outcome => outcome.ok).appointment]);
   }, 20000);
 });
 

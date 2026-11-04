@@ -137,6 +137,42 @@ describe('appointment notifications', () => {
   });
 });
 
+describe('reschedule notifications', () => {
+  test('each reschedule sends its own notification; a rejected one sends none', async () => {
+    const service = advising();
+    const mine = (await book('ana', service.id, '2026-11-05T16:00:00.000Z')).body.data;
+    await book('ben', service.id, '2026-11-05T20:00:00.000Z');
+
+    await as('ana', 'post', `/api/me/appointments/${mine.id}/reschedule`).send({ startsAt: '2026-11-05T17:00:00.000Z' });
+    await as('admin', 'post', `/api/admin/appointments/${mine.id}/reschedule`)
+      .send({ startsAt: '2026-11-05T16:00:00.000Z' });
+    expect((await as('ana', 'post', `/api/me/appointments/${mine.id}/reschedule`)
+      .send({ startsAt: '2026-11-05T20:00:00.000Z' })).status).toBe(409);
+    await notifications.settled();
+
+    const moved = rows().filter(row => row.type === 'appointment.rescheduled');
+    expect(moved.map(row => [row.user_id, row.status, row.message])).toEqual([
+      [users.ana.id, 'sent', 'Your Student Advising appointment was moved from Thursday, November 5, 2026 at '
+        + '10:00 AM Central Time to Thursday, November 5, 2026 at 11:00 AM Central Time.'],
+      [users.ana.id, 'sent', 'Your Student Advising appointment was moved by staff from Thursday, November 5, 2026 at '
+        + '11:00 AM Central Time to Thursday, November 5, 2026 at 10:00 AM Central Time.'],
+    ]);
+    expect(new Set(moved.map(row => row.event_key)).size).toBe(2);
+    moved.forEach(row => expect(row.event_key).toMatch(new RegExp(`^appointment\\.rescheduled:${mine.id}:`)));
+    expect(moved[0].subject).toBe('Appointment rescheduled: Student Advising');
+  });
+
+  test('a failed reschedule email keeps the new time', async () => {
+    const mine = (await book('ana', advising().id, at(60))).body.data;
+    failures.push(new Error('SMTP down'));
+    const moved = await as('ana', 'post', `/api/me/appointments/${mine.id}/reschedule`).send({ startsAt: at(120) });
+    await notifications.settled();
+    expect(moved.status).toBe(200);
+    expect(db.prepare('SELECT starts_at FROM appointment WHERE id = ?').get(mine.id).starts_at).toBe(at(120));
+    expect(rows().at(-1)).toMatchObject({ type: 'appointment.rescheduled', status: 'failed' });
+  });
+});
+
 describe('GET /api/me/notifications', () => {
   test('requires sign-in', async () => {
     expect((await request(app).get('/api/me/notifications')).status).toBe(401);
