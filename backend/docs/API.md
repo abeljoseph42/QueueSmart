@@ -70,8 +70,9 @@ participation returns 404. A user may wait in different service queues at once.
 | Method and path | Access | Success data |
 | --- | --- | --- |
 | GET /me/dashboard | Authenticated | 200: {services: service[], queues: queueStatus[], notifications: notification[]} |
-| GET /me/notifications | Authenticated | 200: notification[] |
 | GET /me/history | Authenticated | 200: historyRecord[] |
+
+GET /me/notifications is served by Heera's database-backed notification routes in A4.
 
 Queues, notifications, and history are scoped to the authenticated user.
 Notifications sort newest createdAt first; history sorts newest endedAt first.

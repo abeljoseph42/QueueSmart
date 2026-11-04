@@ -11,7 +11,7 @@ test('each app starts its own subscribers', async () => {
   const other = createApp();
   app.locals.events.publish(EVENTS.JOINED, { entry });
   app.locals.events.publish(EVENTS.SERVED, { entry: { ...entry, status: 'served' } });
-  expect((await request(app).get('/api/me/notifications')).body.data).toHaveLength(2);
+  expect(app.locals.store.notifications.size).toBe(2);
   expect((await request(app).get('/api/me/history')).body.data).toHaveLength(1);
   expect(other.locals.store.notifications.size).toBe(0);
   app.locals.stopSubscribers();
