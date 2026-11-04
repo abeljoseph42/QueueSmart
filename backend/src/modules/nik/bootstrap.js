@@ -1,8 +1,9 @@
 const { createAuthService } = require('./auth.service');
+const { createUserRepository } = require('./user.repository');
 const { register } = require('../../shared/contracts');
+const { ApiError } = require('../../shared/errors');
 
-async function createDemoAdmin({ store, email, password }) {
-  // No demo account unless explicitly configured.
+async function createDemoAdmin({ store, db, email, password }) {
   if (email === undefined && password === undefined) {
     return null;
   }
@@ -19,16 +20,31 @@ async function createDemoAdmin({ store, email, password }) {
     );
   }
 
-  const authService = createAuthService({ store });
-  const user = await authService.register(result.data);
+  if (db) {
+    const existing = createUserRepository(db)
+      .findByEmail(result.data.email);
 
-  const storedUser = store.users.get(user.id);
-  storedUser.role = 'admin';
+    if (existing) {
+      if (existing.role !== 'admin') {
+        throw new ApiError(
+          409,
+          'EMAIL_IN_USE',
+          'Admin email belongs to a regular account.'
+        );
+      }
 
-  return {
-    ...user,
-    role: 'admin',
-  };
+      // Reuse the account without changing its password.
+      return {
+        id: existing.id,
+        name: existing.name,
+        email: existing.email,
+        role: existing.role,
+      };
+    }
+  }
+
+  return createAuthService({ store, db })
+    .registerAdmin(result.data);
 }
 
 module.exports = { createDemoAdmin };
