@@ -49,6 +49,18 @@ const errorText = error => String(error?.message || error || '').trim().slice(0,
 // Email delivery is not wired to a real provider yet; the default sender only simulates success.
 const simulatedSend = async () => {};
 
+// True when the connection has an open transaction. SQLite refuses BEGIN inside a transaction,
+// so this works on every Node version (db.isTransaction is missing before Node 24).
+function inTransaction(conn) {
+  try {
+    conn.exec('BEGIN');
+  } catch {
+    return true;
+  }
+  conn.exec('ROLLBACK');
+  return false;
+}
+
 function createNotificationService(db, { send = simulatedSend, now = () => new Date() } = {}) {
   const inFlight = new Set();
   const stamp = () => now().toISOString();
@@ -66,7 +78,7 @@ function createNotificationService(db, { send = simulatedSend, now = () => new D
   // Call inside the triggering action's write transaction, so the record commits or rolls back
   // with the action. The same eventKey always returns the first notification.
   function enqueueNotification(tx, input) {
-    if (tx.isTransaction === false) throw new Error('enqueueNotification must run inside a write transaction.');
+    if (!inTransaction(tx)) throw new Error('enqueueNotification must run inside a write transaction.');
     const data = parse(enqueueInput, input);
     const existing = toNotification(tx.prepare('SELECT * FROM notification WHERE event_key = ?').get(data.eventKey));
     if (existing) {
@@ -172,4 +184,4 @@ function createNotificationService(db, { send = simulatedSend, now = () => new D
     findById, getNotification, listForUser, listAll };
 }
 
-module.exports = { NOTIFICATION_STATUSES, MAX_ATTEMPTS, PAGE_SIZE, createNotificationService };
+module.exports = { inTransaction, NOTIFICATION_STATUSES, MAX_ATTEMPTS, PAGE_SIZE, createNotificationService };
