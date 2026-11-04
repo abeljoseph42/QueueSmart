@@ -1,11 +1,8 @@
-const fs = require('node:fs');
-const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { z } = require('zod');
 const { ApiError } = require('../../shared/errors');
 
 const PRIORITY_LABELS = Object.freeze({ 0: 'normal', 1: 'high', 2: 'urgent' });
-const MIGRATION_PATH = path.join(__dirname, 'migrations', '003_services.sql');
 
 const fields = {
   name: z.string().trim().min(1).max(100),
@@ -30,8 +27,6 @@ const columns = {
   priorityLevel: 'priority_level',
   isActive: 'is_active',
 };
-
-const readServiceMigration = () => fs.readFileSync(MIGRATION_PATH, 'utf8');
 
 function parse(schema, input) {
   const result = schema.safeParse(input);
@@ -91,4 +86,4 @@ function createServiceRepository(db) {
   return { create, findById, list, update, getService };
 }
 
-module.exports = { PRIORITY_LABELS, MIGRATION_PATH, readServiceMigration, createServiceRepository };
+module.exports = { PRIORITY_LABELS, createServiceRepository };

@@ -1,21 +1,17 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { DatabaseSync } = require('node:sqlite');
-const {
-  PRIORITY_LABELS, readServiceMigration, createServiceRepository,
-} = require('../src/modules/abel/serviceRepository');
+const { randomUUID } = require('node:crypto');
+const { openDatabase, withWriteTransaction } = require('../src/database/connection');
+const { runMigrations } = require('../src/database/migrate');
+const { PRIORITY_LABELS, createServiceRepository } = require('../src/modules/abel/serviceRepository');
 
 let dir;
 let file;
 let db;
 let repo;
 
-const open = () => {
-  const conn = new DatabaseSync(file);
-  conn.exec('PRAGMA foreign_keys = ON');
-  return conn;
-};
+const open = () => openDatabase({ filename: file });
 
 const advising = { name: 'Student Advising', description: 'Course planning help',
   expectedDurationMinutes: 15, priorityLevel: 1 };
@@ -24,7 +20,7 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queuesmart-abel-'));
   file = path.join(dir, 'test.sqlite');
   db = open();
-  db.exec(readServiceMigration());
+  runMigrations(db);
   repo = createServiceRepository(db);
 });
 
@@ -54,6 +50,11 @@ test('creates a service that findById and getService return', () => {
 test('applies defaults for description, priority, and active state', () => {
   const created = repo.create({ name: 'IT Help Desk', expectedDurationMinutes: 10 });
   expect(created).toMatchObject({ description: '', priorityLevel: 0, isActive: true });
+});
+
+test('migrations 001-003 apply together on a fresh database', () => {
+  const names = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all().map(row => row.name);
+  expect(names).toEqual(['001_user_credentials.sql', '002_user_profile.sql', '003_services.sql']);
 });
 
 test('exposes priority labels', () => {
@@ -111,14 +112,12 @@ test.each([
 });
 
 const insert = row => db.prepare(`INSERT INTO service (id, name, description, expected_duration_minutes,
-  priority_level, is_active) VALUES (?, ?, ?, ?, ?, ?)`).run(row.id ?? 'svc-1', row.name ?? 'Valid',
+  priority_level, is_active) VALUES (?, ?, ?, ?, ?, ?)`).run(row.id ?? randomUUID(), row.name ?? 'Valid',
   row.description ?? '', row.duration ?? 10, row.priority ?? 0, row.active ?? 1);
 
 test.each([
   ['zero duration', { duration: 0 }],
   ['481 minute duration', { duration: 481 }],
-  ['fractional duration', { duration: 1.5 }],
-  ['text duration', { duration: 'thirty' }],
   ['priority 3', { priority: 3 }],
   ['is_active 2', { active: 2 }],
   ['untrimmed name', { name: ' Padded ' }],
@@ -128,11 +127,21 @@ test.each([
   expect(() => insert(row)).toThrow(/CHECK constraint failed/);
 });
 
-test('database rejects duplicate ids and missing names', () => {
-  insert({});
-  expect(() => insert({})).toThrow(/UNIQUE constraint failed/);
+test.each([
+  ['fractional duration', { duration: 1.5 }],
+  ['text duration', { duration: 'thirty' }],
+  ['text priority', { priority: 'high' }],
+])('STRICT column types reject %s', (_label, row) => {
+  expect(() => insert(row)).toThrow(/cannot store/);
+});
+
+test('database rejects bad ids, duplicate ids, and missing names', () => {
+  const id = randomUUID();
+  insert({ id });
+  expect(() => insert({ id })).toThrow(/UNIQUE constraint failed/);
+  expect(() => insert({ id: 'short' })).toThrow(/CHECK constraint failed/);
   expect(() => db.prepare('INSERT INTO service (id, expected_duration_minutes) VALUES (?, ?)')
-    .run('svc-2', 10)).toThrow(/NOT NULL constraint failed/);
+    .run(randomUUID(), 10)).toThrow(/NOT NULL constraint failed/);
 });
 
 test('services persist after the database is closed and reopened', () => {
@@ -142,17 +151,24 @@ test('services persist after the database is closed and reopened', () => {
   expect(createServiceRepository(db).findById(created.id)).toEqual(created);
 });
 
-test('getService and update use a supplied connection', () => {
+test('getService and update use a supplied transaction connection', () => {
   const created = repo.create(advising);
   const other = open();
+  const rollback = new Error('rollback');
   try {
-    other.exec('BEGIN IMMEDIATE');
-    repo.update(created.id, { name: 'Renamed' }, other);
-    expect(repo.getService(created.id, other).name).toBe('Renamed');
-    expect(repo.findById(created.id).name).toBe('Student Advising');
-    other.exec('ROLLBACK');
+    expect(() => withWriteTransaction(other, tx => {
+      repo.update(created.id, { name: 'Renamed' }, tx);
+      expect(repo.getService(created.id, tx).name).toBe('Renamed');
+      expect(repo.findById(created.id).name).toBe('Student Advising');
+      throw rollback;
+    })).toThrow(rollback);
   } finally {
     other.close();
   }
   expect(repo.getService(created.id).name).toBe('Student Advising');
+});
+
+test('changes made in a committed transaction are visible afterwards', () => {
+  const created = withWriteTransaction(db, tx => repo.create(advising, tx));
+  expect(repo.findById(created.id)).toEqual(created);
 });
