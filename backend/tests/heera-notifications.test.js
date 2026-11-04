@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { openDatabase, withWriteTransaction } = require('../src/database/connection');
 const { runMigrations } = require('../src/database/migrate');
 const {
-  NOTIFICATION_STATUSES, MAX_ATTEMPTS, PAGE_SIZE, createNotificationService,
+  inTransaction, NOTIFICATION_STATUSES, MAX_ATTEMPTS, PAGE_SIZE, createNotificationService,
 } = require('../src/modules/heera/notificationService');
 
 const MIGRATIONS = path.join(__dirname, '../src/database/migrations');
@@ -140,6 +140,13 @@ describe('enqueueNotification', () => {
   });
 });
 
+test('inTransaction detects an open transaction without db.isTransaction', () => {
+  expect(inTransaction(db)).toBe(false);
+  expect(withWriteTransaction(db, tx => inTransaction(tx))).toBe(true);
+  // The probe leaves no transaction behind.
+  expect(() => withWriteTransaction(db, () => 'ok')).not.toThrow();
+});
+
 describe('deliverNotification', () => {
   test('emails the user after commit and marks it sent', async () => {
     const userId = addUser('ana@example.com');
@@ -155,7 +162,7 @@ describe('deliverNotification', () => {
     const userId = addUser();
     const { notification } = enqueue(input(userId));
     let open;
-    const svc = createNotificationService(db, { send: async () => { open = db.isTransaction; } });
+    const svc = createNotificationService(db, { send: async () => { open = inTransaction(db); } });
     await svc.deliverNotification(notification.id);
     expect(open).toBe(false);
   });
