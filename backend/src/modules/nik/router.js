@@ -8,9 +8,9 @@ module.exports = function createNikRouter({
   store,
   events,
   authService,
+  serviceManager = createServiceManager({ store }),
 }) {
   const router = Router();
-    const serviceManager = createServiceManager({ store });
     router.post('/auth/register', validate(c.register), async (req, res) => {
     await authService.register(req.validated.body);
 

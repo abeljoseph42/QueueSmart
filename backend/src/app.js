@@ -9,6 +9,7 @@ const routers = ['nik', 'abel', 'bryan', 'heera'].map(owner => require(`./module
 const {
   createAuthService,
 } = require('./modules/nik/auth.service');
+const { createServiceManager } = require('./modules/abel/serviceManager');
 function createApp({
   store = createStore(),
   events = createEventBus(),
@@ -27,6 +28,8 @@ function createApp({
     store,
     events,
     authService,
+    db,
+    serviceManager: db ? createServiceManager({ store, db }) : undefined,
 auth: requireAuth(resolveUser ?? authService.resolveUser),
   };
   app.locals.store = store;

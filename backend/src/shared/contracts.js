@@ -16,15 +16,16 @@ const register = z.object({
 }).strict(); // Public registration cannot choose an administrator role.
 const login = register.pick({ email: true, password: true });
 const createService = z.object(serviceFields).strict();
-const updateService = createService.partial().refine(value => Object.keys(value).length > 0,
-  { message: 'At least one service field is required.' });
+// isActive is A4 deactivation (no delete); it is accepted on updates only.
+const updateService = createService.extend({ isActive: z.boolean() }).partial()
+  .refine(value => Object.keys(value).length > 0, { message: 'At least one service field is required.' });
 const serviceParams = z.object({ serviceId: id });
 const entryParams = z.object({ serviceId: id, entryId: id });
 const joinQueue = z.object({}).strict(); // Identity and priority come from the server.
 const queueState = z.object({ isOpen: z.boolean() }).strict();
 const reorder = z.object({ position: z.number().int().min(1) }).strict();
 const user = z.object({ id, name: serviceFields.name, email: z.email(), role });
-const service = createService.extend({ id, isOpen: z.boolean() });
+const service = createService.extend({ id, isOpen: z.boolean(), isActive: z.boolean().optional() });
 const queueEntry = z.object({ id, serviceId: id, userId: id, priority,
   joinedAt: z.iso.datetime(), status: z.enum(['waiting', 'served', 'left', 'removed']) });
 const queueStatus = z.object({ entry: queueEntry, position: z.number().int().min(1),
