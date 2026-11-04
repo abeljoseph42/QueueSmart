@@ -5,3 +5,9 @@ coverage/
 !.env.example
 *.log
 .DS_Store
+
+# Local SQLite databases and supporting files
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
