@@ -235,6 +235,21 @@ describe('deliverNotification', () => {
   });
 });
 
+describe('deliverAfterCommit', () => {
+  test('delivers in the background and settled() waits for it', async () => {
+    const userId = addUser();
+    const { notification } = enqueue(input(userId));
+    service.deliverAfterCommit(notification.id);
+    await service.settled();
+    expect(service.getNotification(notification.id).status).toBe('sent');
+  });
+
+  test('swallows delivery errors so they never reach the caller', async () => {
+    await expect(service.deliverAfterCommit(randomUUID())).resolves.toBeUndefined();
+    await service.settled();
+  });
+});
+
 describe('retryNotification', () => {
   test('retries a failed notification, up to three attempts in total', async () => {
     const userId = addUser();

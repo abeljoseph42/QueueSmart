@@ -14,9 +14,9 @@ const listQuery = z.object({ status: z.enum(APPOINTMENT_STATUSES).optional() }).
 const appointmentParams = z.object({ appointmentId: z.string().trim().min(1).max(100) });
 const serviceParams = z.object({ serviceId: z.string().trim().min(1).max(100) });
 
-function createAppointmentRouter({ db, auth, now }) {
+function createAppointmentRouter({ db, auth, now, notifications }) {
   const router = Router();
-  const appointments = createAppointmentRepository(db, now ? { now } : undefined);
+  const appointments = createAppointmentRepository(db, { ...(now ? { now } : {}), notifications });
   const services = createServiceRepository(db);
   const admin = [auth, requireRole('admin')];
 

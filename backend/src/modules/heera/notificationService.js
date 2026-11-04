@@ -138,6 +138,20 @@ function createNotificationService(db, { send = simulatedSend, now = () => new D
     }
   }
 
+  // Starts delivery once the caller's transaction has committed, without making the caller wait.
+  // Nothing here can throw back into the action that queued the notification.
+  const background = new Set();
+  function deliverAfterCommit(id) {
+    const delivery = deliverNotification(id).catch(() => {}).finally(() => background.delete(delivery));
+    background.add(delivery);
+    return delivery;
+  }
+
+  // Resolves once every background delivery has finished (used by tests and shutdown).
+  async function settled() {
+    while (background.size) await Promise.all([...background]);
+  }
+
   // Admin retry: only failed notifications, and never past three attempts in total.
   async function retryNotification(id) {
     withWriteTransaction(db, tx => {
@@ -180,7 +194,7 @@ function createNotificationService(db, { send = simulatedSend, now = () => new D
   const listForUser = (userId, options = {}) => page(['user_id = ?'], [userId], options);
   const listAll = (options = {}) => page([], [], options);
 
-  return { enqueueNotification, deliverNotification, retryNotification, markViewed,
+  return { enqueueNotification, deliverNotification, deliverAfterCommit, settled, retryNotification, markViewed,
     findById, getNotification, listForUser, listAll };
 }
 

@@ -44,7 +44,25 @@ const conflict = message => new ApiError(409, 'SLOT_CONFLICT', message);
 // Ranges are half-open, so back-to-back appointments do not overlap.
 const OVERLAP = "status <> 'canceled' AND starts_at < ? AND ends_at > ?";
 
-function createAppointmentRepository(db, { now = () => new Date() } = {}) {
+// Times are stored in UTC and shown to people in Central Time.
+const centralTime = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago', dateStyle: 'full', timeStyle: 'short',
+});
+const when = startsAt => `${centralTime.format(new Date(startsAt))} Central Time`;
+
+// With a notification service, booking and canceling queue a notification in the same transaction
+// and start the email after commit. A failed email never undoes the appointment change.
+function createAppointmentRepository(db, { now = () => new Date(), notifications } = {}) {
+  function writeAndNotify(work) {
+    const queued = [];
+    const notify = (tx, input) => {
+      if (notifications) queued.push(notifications.enqueueNotification(tx, input).notification.id);
+    };
+    const result = withWriteTransaction(db, tx => work(tx, notify));
+    queued.forEach(id => notifications.deliverAfterCommit(id));
+    return result;
+  }
+
   function findById(id, conn = db) {
     return toAppointment(conn.prepare('SELECT * FROM appointment WHERE id = ?').get(id)) ?? null;
   }
@@ -71,7 +89,7 @@ function createAppointmentRepository(db, { now = () => new Date() } = {}) {
     const start = validateStart(data.startsAt, current);
 
     // The slot checks and the insert share one write lock, so competing bookings serialize.
-    return withWriteTransaction(db, tx => {
+    return writeAndNotify((tx, notify) => {
       if (!tx.prepare('SELECT 1 FROM user_credentials WHERE id = ?').get(data.userId)) {
         throw new ApiError(404, 'NOT_FOUND', 'User not found.');
       }
@@ -96,6 +114,9 @@ function createAppointmentRepository(db, { now = () => new Date() } = {}) {
         (id, user_id, service_id, starts_at, ends_at, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, 'booked', ?, ?)`)
         .run(id, data.userId, data.serviceId, startsAt, endsAt, stamp, stamp);
+      notify(tx, { userId: data.userId, eventKey: `appointment.booked:${id}`, type: 'appointment.booked',
+        subject: `Appointment booked: ${service.name}`,
+        message: `Your ${service.name} appointment is booked for ${when(startsAt)}.` });
       return getAppointment(id, tx);
     });
   }
@@ -117,13 +138,20 @@ function createAppointmentRepository(db, { now = () => new Date() } = {}) {
   // Only booked appointments can move, and only to canceled or completed.
   // Passing userId scopes the change to that user's own appointment.
   function transition(id, next, { userId } = {}) {
-    return withWriteTransaction(db, tx => {
+    return writeAndNotify((tx, notify) => {
       const appointment = findById(id, tx);
       if (!appointment || (userId !== undefined && appointment.userId !== userId)) throw notFound();
       if (appointment.status !== 'booked') throw new ApiError(409, 'INVALID_STATUS',
         `Only booked appointments can be ${next}; this one is ${appointment.status}.`);
       tx.prepare('UPDATE appointment SET status = ?, updated_at = ? WHERE id = ?')
         .run(next, now().toISOString(), id);
+      if (next === 'canceled') {
+        const { name } = createServiceRepository(tx).getService(appointment.serviceId);
+        const by = userId === undefined ? ' by staff' : '';
+        notify(tx, { userId: appointment.userId, eventKey: `appointment.canceled:${id}`, type: 'appointment.canceled',
+          subject: `Appointment canceled: ${name}`,
+          message: `Your ${name} appointment for ${when(appointment.startsAt)} was canceled${by}.` });
+      }
       return getAppointment(id, tx);
     });
   }
