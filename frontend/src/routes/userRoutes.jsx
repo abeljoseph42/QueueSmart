@@ -1,5 +1,6 @@
 import History from '../pages/user/History'
 import UserDashboard from '../pages/user/UserDashboard'
+import Profile from '../pages/user/Profile'
 
 import JoinQueue from '../pages/user/JoinQueue'
 import QueueStatus from '../pages/user/QueueStatus'
@@ -21,4 +22,8 @@ export const userRoutes = [
     path: '/history',
     element: <History />,
   },
+  {
+    path: '/profile',
+    element: <Profile />,
+  }
 ]

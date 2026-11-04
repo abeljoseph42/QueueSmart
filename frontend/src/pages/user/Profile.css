@@ -1,0 +1,25 @@
+.profile-card {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.profile-card fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.profile-legend {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.profile-card input[readonly] {
+  background: #f4f6fa;
+}
+
+.profile-card [role="alert"] {
+  margin-bottom: 1rem;
+}
