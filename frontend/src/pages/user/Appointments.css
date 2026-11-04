@@ -1,0 +1,183 @@
+.appointments {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
+.appointments-header h1 {
+  margin-bottom: 0.25rem;
+}
+
+.appointments-header .eyebrow,
+.appointments-intro {
+  margin: 0;
+}
+
+.appointments-intro,
+.appointments-hint,
+.appointments-length {
+  color: var(--color-muted);
+}
+
+.appointments h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+}
+
+.appointments-hint {
+  margin: 0;
+}
+
+.appointments-alert {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: #eaf0fc;
+}
+
+.appointments-alert.is-error {
+  background: #fdecea;
+  border-color: #f5c2bd;
+  color: var(--color-error);
+}
+
+.appointments-alert.is-success {
+  background: #e3f4ea;
+  border-color: #b7e0c6;
+  color: var(--color-success);
+}
+
+.appointments-book {
+  display: grid;
+  gap: 1rem;
+}
+
+.appointments-book h2 {
+  margin: 0;
+}
+
+.appointments label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+.appointments select,
+.appointments input {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: white;
+}
+
+.appointments-time-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1rem;
+}
+
+.appointments-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.appointments-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.appointments-toolbar h2 {
+  margin: 0;
+}
+
+.appointments-toggle {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.875rem;
+}
+
+.appointments-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.appointments-item {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: white;
+}
+
+.appointments-item.is-canceled {
+  opacity: 0.75;
+}
+
+.appointments-item-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.appointments-item h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.appointments-when {
+  margin: 0.25rem 0 0;
+}
+
+.appointments-status {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.appointments-status-booked {
+  background: #eaf0fc;
+  color: var(--color-primary);
+}
+
+.appointments-status-completed {
+  background: #e3f4ea;
+  color: var(--color-success);
+}
+
+.appointments-status-canceled {
+  background: #fdecea;
+  color: var(--color-error);
+}
+
+.appointments-actions .button,
+.appointments-actions button {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.875rem;
+}
+
+.appointments-cancel {
+  background: white;
+  color: var(--color-error);
+  border-color: #f5c2bd;
+}
+
+.appointments-cancel:hover {
+  background: #fdecea;
+}
+
+.appointments-reschedule {
+  display: grid;
+  gap: 0.75rem;
+}

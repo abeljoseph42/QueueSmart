@@ -4,6 +4,8 @@ import Profile from '../pages/user/Profile'
 
 import JoinQueue from '../pages/user/JoinQueue'
 import QueueStatus from '../pages/user/QueueStatus'
+import Appointments from '../pages/user/Appointments'
+import NotificationHistory from '../pages/user/NotificationHistory'
 
 export const userRoutes = [
   {
@@ -25,5 +27,13 @@ export const userRoutes = [
   {
     path: '/profile',
     element: <Profile />,
-  }
+  },
+  {
+    path: '/appointments',
+    element: <Appointments />,
+  },
+  {
+    path: '/notifications',
+    element: <NotificationHistory />,
+  },
 ]
