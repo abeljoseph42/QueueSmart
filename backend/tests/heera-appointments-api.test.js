@@ -134,9 +134,40 @@ describe('user appointments', () => {
   });
 });
 
+describe('POST /api/me/appointments/:id/reschedule', () => {
+  test('moves my own appointment but not someone else\'s', async () => {
+    const service = advising();
+    const mine = (await book('ana', { serviceId: service.id, startsAt: at(60) })).body.data;
+    const path = `/api/me/appointments/${mine.id}/reschedule`;
+
+    expect((await request(app).post(path).send({ startsAt: at(120) })).status).toBe(401);
+    const theirs = await as('ben', 'post', path).send({ startsAt: at(120) });
+    expect(theirs.status).toBe(404);
+
+    const moved = await as('ana', 'post', path).send({ startsAt: '2026-11-05T10:00:00-06:00' });
+    expect(moved.status).toBe(200);
+    expect(moved.body.data).toMatchObject({ id: mine.id, status: 'booked',
+      startsAt: '2026-11-05T16:00:00.000Z', endsAt: '2026-11-05T16:30:00.000Z' });
+  });
+
+  test('maps validation and slot rules to HTTP errors', async () => {
+    const service = advising();
+    const mine = (await book('ana', { serviceId: service.id, startsAt: at(60) })).body.data;
+    await book('ben', { serviceId: service.id, startsAt: at(180) });
+    const path = `/api/me/appointments/${mine.id}/reschedule`;
+    for (const body of [{}, { startsAt: at(120), serviceId: service.id }, { startsAt: at(-5) }]) {
+      expect((await as('ana', 'post', path).send(body)).status).toBe(400);
+    }
+    const taken = await as('ana', 'post', path).send({ startsAt: at(190) });
+    expect(taken.status).toBe(409);
+    expect(taken.body.error.code).toBe('SLOT_CONFLICT');
+  });
+});
+
 describe('admin appointments', () => {
   const adminRoutes = id => [['get', `/api/admin/services/${id}/appointments`],
-    ['post', `/api/admin/appointments/${id}/cancel`], ['post', `/api/admin/appointments/${id}/complete`]];
+    ['post', `/api/admin/appointments/${id}/cancel`], ['post', `/api/admin/appointments/${id}/complete`],
+    ['post', `/api/admin/appointments/${id}/reschedule`]];
 
   test('admin routes require an admin', async () => {
     for (const [method, url] of adminRoutes(randomUUID())) {
@@ -163,6 +194,17 @@ describe('admin appointments', () => {
     expect(missing.status).toBe(404);
     expect(missing.body.error).toEqual({ code: 'NOT_FOUND', message: 'Service not found.' });
     expect((await as('admin', 'get', `/api/admin/services/${service.id}/appointments?from=x`)).status).toBe(400);
+  });
+
+  test('admin reschedules any booked appointment', async () => {
+    const service = advising();
+    const a = (await book('ana', { serviceId: service.id, startsAt: at(30) })).body.data;
+    const moved = await as('admin', 'post', `/api/admin/appointments/${a.id}/reschedule`).send({ startsAt: at(90) });
+    expect(moved.status).toBe(200);
+    expect(moved.body.data).toMatchObject({ id: a.id, userId: users.ana.id, startsAt: at(90), endsAt: at(120) });
+    expect((await as('admin', 'post', `/api/admin/appointments/${a.id}/reschedule`).send({})).status).toBe(400);
+    expect((await as('admin', 'post', `/api/admin/appointments/${randomUUID()}/reschedule`)
+      .send({ startsAt: at(300) })).status).toBe(404);
   });
 
   test('admin cancels or completes any booked appointment', async () => {
