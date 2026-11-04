@@ -65,7 +65,15 @@ function createServiceManager({ store, db }) {
     return sync(service);
   }
 
-  return { createService, listServices, updateService, getService, setQueueOpen };
+  function getStats() {
+    return { ...db.prepare(`SELECT
+      (SELECT count(*) FROM service) AS serviceCount,
+      (SELECT count(*) FROM service WHERE is_active = 1) AS activeServiceCount,
+      (SELECT count(*) FROM queue WHERE status = 'open') AS openQueueCount,
+      (SELECT count(*) FROM queue WHERE status = 'closed') AS closedQueueCount`).get() };
+  }
+
+  return { createService, listServices, updateService, getService, setQueueOpen, getStats };
 }
 
 module.exports = { PRIORITY_TO_LEVEL, LEVEL_TO_PRIORITY, createServiceManager };

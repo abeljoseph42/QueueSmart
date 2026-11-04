@@ -3,7 +3,10 @@ import {
   listServices,
   createService,
   updateService,
+  setServiceActive,
+  setQueueOpen,
 } from '../../api/services'
+import { describeError } from './adminErrors'
 import { validateService } from './serviceValidation'
 import './ServiceManagement.css'
 
@@ -33,6 +36,7 @@ export default function ServiceManagement() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [apiError, setApiError] = useState('')
+  const [busyId, setBusyId] = useState(null)
   const nameInputRef = useRef(null)
 
   const isEditing = editingId !== null
@@ -48,7 +52,7 @@ export default function ServiceManagement() {
       })
       .catch(error => {
         if (active) {
-          setApiError(error.message)
+          setApiError(describeError(error))
         }
       })
       .finally(() => {
@@ -108,7 +112,7 @@ export default function ServiceManagement() {
 
         setServices(current => [...current, created])
 
-        setMessage(`${created.name} was created successfully.`)
+        setMessage(`${created.name} was created. Its queue starts closed; open it from the list when you are ready.`)
       }
 
       setForm({ ...emptyForm })
@@ -120,13 +124,44 @@ export default function ServiceManagement() {
           ? 'Please log in again before managing services.'
           : error.status === 403
             ? 'Only administrators can manage services.'
-            : error.message
+            : describeError(error)
 
       setApiError(message)
     } finally {
       setIsSubmitting(false)
     }
   }
+
+  async function runServiceAction(service, action, describe) {
+    setBusyId(service.id)
+    setMessage('')
+    setApiError('')
+
+    try {
+      const updated = await action()
+
+      setServices(current =>
+        current.map(item => (item.id === updated.id ? updated : item)),
+      )
+      setMessage(describe(updated))
+    } catch (error) {
+      setApiError(describeError(error))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const toggleQueue = service => runServiceAction(
+    service,
+    () => setQueueOpen(service.id, !service.isOpen),
+    updated => `${updated.name} queue is now ${updated.isOpen ? 'open' : 'closed'}.`,
+  )
+
+  const toggleActive = service => runServiceAction(
+    service,
+    () => setServiceActive(service.id, service.isActive === false),
+    updated => `${updated.name} is now ${updated.isActive ? 'active' : 'inactive'}.`,
+  )
 
   function handleEdit(service) {
     setEditingId(service.id)
@@ -347,6 +382,15 @@ export default function ServiceManagement() {
                   </span>
                 </div>
 
+                <div className="service-status-row">
+                  <span className={`service-status ${service.isOpen ? 'is-open' : 'is-closed'}`}>
+                    Queue {service.isOpen ? 'open' : 'closed'}
+                  </span>
+                  {service.isActive === false && (
+                    <span className="service-status is-closed">Inactive</span>
+                  )}
+                </div>
+
                 <p className="service-description">
                   {service.description}
                 </p>
@@ -356,15 +400,37 @@ export default function ServiceManagement() {
                     Expected duration: {service.expectedDuration} min
                   </span>
 
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    aria-label={`Edit ${service.name}`}
-                    onClick={() => handleEdit(service)}
-                    disabled={isEditing || isSubmitting || isLoading}
-                  >
-                    Edit
-                  </button>
+                  <div className="service-item-actions">
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      aria-label={`${service.isOpen ? 'Close' : 'Open'} queue for ${service.name}`}
+                      onClick={() => toggleQueue(service)}
+                      disabled={busyId === service.id || isLoading}
+                    >
+                      {service.isOpen ? 'Close queue' : 'Open queue'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      aria-label={`${service.isActive === false ? 'Reactivate' : 'Deactivate'} ${service.name}`}
+                      onClick={() => toggleActive(service)}
+                      disabled={busyId === service.id || isLoading}
+                    >
+                      {service.isActive === false ? 'Reactivate' : 'Deactivate'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      aria-label={`Edit ${service.name}`}
+                      onClick={() => handleEdit(service)}
+                      disabled={isEditing || isSubmitting || isLoading}
+                    >
+                      Edit
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}

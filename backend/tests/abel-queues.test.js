@@ -209,3 +209,28 @@ describe('admin queue status API', () => {
     expect(queueRows()[0].status).toBe('closed');
   });
 });
+
+describe('admin dashboard service and queue statistics', () => {
+  test('counts services and queue states from SQLite and survive a restart', async () => {
+    const first = await createService();
+    const second = await createService();
+    await createService();
+    await setOpen(first.id, true);
+    await as('admin', 'patch', `/api/services/${second.id}`).send({ isActive: false });
+    const expected = { serviceCount: 3, activeServiceCount: 2, openQueueCount: 1, closedQueueCount: 2,
+      openServiceCount: 1, waitingCount: 0 };
+    expect((await as('admin', 'get', '/api/admin/dashboard')).body.data).toEqual(expected);
+
+    app.locals.stopSubscribers();
+    db.close();
+    boot();
+    expect((await as('admin', 'get', '/api/admin/dashboard')).body.data).toEqual(expected);
+  });
+
+  test('without a database the dashboard keeps the A3 fields only', async () => {
+    const memoryApp = createApp({ resolveUser: async () => users.admin });
+    expect((await request(memoryApp).get('/api/admin/dashboard')).body.data)
+      .toEqual({ serviceCount: 0, waitingCount: 0, openServiceCount: 0 });
+    memoryApp.locals.stopSubscribers();
+  });
+});

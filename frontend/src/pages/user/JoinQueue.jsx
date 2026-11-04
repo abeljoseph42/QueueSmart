@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { listServices } from '../../api/services'
+import { friendlyError, isAvailable, listServices } from '../../api/services'
 import { getMyQueues, joinQueue, leaveQueue, statusLabel } from '../../api/queue'
 import './JoinQueue.css'
 
@@ -36,7 +36,7 @@ export default function JoinQueue() {
         setNeedsLogin(loggedOut)
       })
       .catch(error => {
-        if (active) setMessage({ type: 'error', text: error.message })
+        if (active) setMessage({ type: 'error', text: friendlyError(error) })
       })
       .finally(() => {
         if (active) setIsLoading(false)
@@ -53,7 +53,7 @@ export default function JoinQueue() {
       setMyQueues(queues)
       setNeedsLogin(loggedOut)
     } catch (error) {
-      setMessage({ type: 'error', text: error.message })
+      setMessage({ type: 'error', text: friendlyError(error) })
     }
   }
 
@@ -71,7 +71,7 @@ export default function JoinQueue() {
       setMessage({ type: 'error', text: 'Please log in to join or leave a queue.' })
       return
     }
-    setMessage({ type: 'error', text: error.message })
+    setMessage({ type: 'error', text: friendlyError(error) })
     
     if (error.status === 409) refresh()
   }
@@ -144,6 +144,7 @@ export default function JoinQueue() {
           {services.map(service => {
             const isSelected = service.id === selectedId
             const joined = myQueues[service.id]
+            const canJoin = service.isOpen && isAvailable(service)
 
             return (
               <button
@@ -151,13 +152,13 @@ export default function JoinQueue() {
                 type="button"
                 className={`join-queue-card${isSelected ? ' is-selected' : ''}`}
                 onClick={() => handleSelect(service.id)}
-                disabled={!service.isOpen && !joined}
+                disabled={!canJoin && !joined}
                 aria-pressed={isSelected}
               >
                 <div className="join-queue-card-top">
                   <h2>{service.name}</h2>
-                  <span className={`join-queue-status ${service.isOpen ? 'is-open' : 'is-closed'}`}>
-                    {joined ? 'Joined' : service.isOpen ? 'Open' : 'Closed'}
+                  <span className={`join-queue-status ${canJoin ? 'is-open' : 'is-closed'}`}>
+                    {joined ? 'Joined' : !isAvailable(service) ? 'Unavailable' : service.isOpen ? 'Open' : 'Closed'}
                   </span>
                 </div>
 
@@ -220,7 +221,7 @@ export default function JoinQueue() {
                 exact position and wait time as soon as you join.
               </p>
               <div className="join-queue-actions">
-                <button type="button" onClick={handleJoin} disabled={isBusy || !selectedService.isOpen}>
+                <button type="button" onClick={handleJoin} disabled={isBusy || !selectedService.isOpen || !isAvailable(selectedService)}>
                   {isBusy ? 'Joining…' : 'Join Queue'}
                 </button>
                 <button type="button" className="button-secondary" onClick={() => setSelectedId(null)}>

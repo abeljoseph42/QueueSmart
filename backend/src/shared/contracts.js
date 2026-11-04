@@ -39,8 +39,9 @@ const notification = z.object({ id, userId: id, entryId: id,
 const authResult = z.object({ user, token: z.string().min(1) });
 const userDashboard = z.object({ services: z.array(service), queues: z.array(queueStatus),
   notifications: z.array(notification) });
-const adminDashboard = z.object({ serviceCount: z.number().int().min(0),
-  waitingCount: z.number().int().min(0), openServiceCount: z.number().int().min(0) });
+const count = z.number().int().min(0);
+const adminDashboard = z.object({ serviceCount: count, waitingCount: count, openServiceCount: count,
+  activeServiceCount: count.optional(), openQueueCount: count.optional(), closedQueueCount: count.optional() });
 /** @typedef {import('zod').infer<typeof user>} User */
 /** @typedef {import('zod').infer<typeof service>} Service */
 /** @typedef {import('zod').infer<typeof queueEntry>} QueueEntry */
