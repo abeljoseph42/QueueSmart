@@ -5,8 +5,11 @@ const { requireRole } = require('../../middleware/auth');
 const { ApiError } = require('../../shared/errors');
 const { EVENTS } = require('../../shared/events');
 const { orderedQueue: getOrderedWaiting, checkNearEvents: notifyNear, moveEntry } = require('../bryan/queueService');
-module.exports = function createHeeraRouter({ auth, store, events, serviceManager }) {
+const { createAppointmentRouter } = require('./appointmentRouter');
+module.exports = function createHeeraRouter({ auth, store, events, serviceManager, db }) {
   const router = Router();
+  // Appointments are database-backed, so they exist only when the app has a database.
+  if (db) router.use(createAppointmentRouter({ db, auth }));
   router.use('/admin', auth, requireRole('admin'));
   router.get('/admin/dashboard', (_req, res) => {
     const services = [...store.services.values()];
