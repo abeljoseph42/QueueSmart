@@ -6,6 +6,7 @@ const {
 } = require('node:crypto');
 const { promisify } = require('node:util');
 const { ApiError } = require('../../shared/errors');
+const { createUserRepository } = require('./user.repository');
 
 const hashPassword = promisify(scrypt);
 
@@ -18,15 +19,27 @@ function publicUser(user) {
   };
 }
 
-function createAuthService({ store, now = Date.now }) {
+function createAuthService({ store, db, now = Date.now }) {
+  // The running server supplies SQLite.
+  // Existing isolated tests can continue using their injected memory store.
+  const users = db ? createUserRepository(db) : {
+    findByEmail: email =>
+      [...store.users.values()].find(
+        user => user.email === email
+      ),
+
+    findById: id => store.users.get(id),
+
+    insert: user => store.users.set(user.id, user),
+  };
+
   const sessionDurationMs = 60 * 60 * 1000;
-  async function register({ name, email, password }) {
-    const normalizedEmail = email.toLowerCase();
+
+  async function createAccount({ name, email, password }, role) {
+    const normalizedEmail = email.trim().toLowerCase();
 
     const emailExists = () =>
-      [...store.users.values()].some(
-        user => user.email === normalizedEmail
-      );
+      Boolean(users.findByEmail(normalizedEmail));
 
     if (emailExists()) {
       throw new ApiError(
@@ -37,11 +50,12 @@ function createAuthService({ store, now = Date.now }) {
     }
 
     const passwordSalt = randomBytes(16).toString('hex');
+
     const passwordHash = (
       await hashPassword(password, passwordSalt, 64)
     ).toString('hex');
 
-    // Another registration may finish while hashing is in progress.
+    // Another registration may complete while hashing is in progress.
     if (emailExists()) {
       throw new ApiError(
         409,
@@ -54,19 +68,19 @@ function createAuthService({ store, now = Date.now }) {
       id: randomUUID(),
       name,
       email: normalizedEmail,
-      role: 'user',
+      role,
       passwordSalt,
       passwordHash,
     };
 
-    store.users.set(user.id, user);
+    users.insert(user);
 
     return publicUser(user);
   }
 
-    async function login({ email, password }) {
-    const user = [...store.users.values()].find(
-      candidate => candidate.email === email.toLowerCase()
+  async function login({ email, password }) {
+    const user = users.findByEmail(
+      email.trim().toLowerCase()
     );
 
     if (!user) {
@@ -126,7 +140,7 @@ function createAuthService({ store, now = Date.now }) {
       return null;
     }
 
-    const user = store.users.get(session.userId);
+    const user = users.findById(session.userId);
 
     if (!user) {
       store.sessions.delete(token);
@@ -136,7 +150,16 @@ function createAuthService({ store, now = Date.now }) {
     return publicUser(user);
   }
 
-  return { register, login, resolveUser };
+  return {
+    // Public registration always creates a regular user.
+    register: input => createAccount(input, 'user'),
+
+    // Internal bootstrap operation; no public route exposes this.
+    registerAdmin: input => createAccount(input, 'admin'),
+
+    login,
+    resolveUser,
+  };
 }
 
 module.exports = { createAuthService };
