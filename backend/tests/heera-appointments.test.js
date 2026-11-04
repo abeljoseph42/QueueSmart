@@ -63,7 +63,7 @@ describe('006_appointments migration', () => {
   test('applies after the earlier migrations', () => {
     const names = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all().map(row => row.name);
     expect(names).toContain('006_appointments.sql');
-    expect(names.at(-1)).toBe('006_appointments.sql');
+    expect(names.indexOf('006_appointments.sql')).toBe(names.filter(name => name < '006').length);
   });
 
   test('applies on top of a database that already has 001-004', () => {
