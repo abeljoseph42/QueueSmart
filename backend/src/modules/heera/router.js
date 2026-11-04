@@ -15,6 +15,7 @@ module.exports = function createHeeraRouter({ auth, store, events, serviceManage
       serviceCount: store.services.size,
       waitingCount: entries.filter(entry => entry.status === 'waiting').length,
       openServiceCount: services.filter(service => service.isOpen === true).length,
+      ...serviceManager?.getStats(),
     }) });
   });
   router.get('/admin/services/:serviceId/queue', validate(c.serviceParams, 'params'), (req, res) => {

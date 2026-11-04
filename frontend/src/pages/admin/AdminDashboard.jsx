@@ -56,8 +56,12 @@ export default function AdminDashboard() {
       </header>
       <section className="admin-dashboard__metrics" aria-label="Queue overview" aria-busy={loading}>
         <article className="card admin-dashboard__metric">
+          <h2>Open Queues</h2>
+          <p>{metric(metrics?.openQueueCount ?? metrics?.openServiceCount)}</p>
+        </article>
+        <article className="card admin-dashboard__metric">
           <h2>Active Services</h2>
-          <p>{metric(metrics?.openServiceCount)}</p>
+          <p>{metric(metrics?.activeServiceCount ?? metrics?.serviceCount)}</p>
         </article>
         <article className="card admin-dashboard__metric">
           <h2>People Waiting</h2>
@@ -82,6 +86,7 @@ export default function AdminDashboard() {
                 <div className="admin-dashboard__service-heading">
                   <h3>{service.name}</h3>
                   <span className={`admin-dashboard__status${service.isOpen ? '' : ' admin-dashboard__status--closed'}`} aria-live="polite">{status}</span>
+                  {service.isActive === false && <span className="admin-dashboard__status admin-dashboard__status--closed">INACTIVE</span>}
                 </div>
                 <p className="admin-dashboard__description">{service.description}</p>
                 <p className="admin-dashboard__queue-length"><strong>{lengths[service.id] ?? '—'}</strong> people waiting</p>
