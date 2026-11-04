@@ -5,7 +5,7 @@ const { requireRole } = require('../../middleware/auth');
 const { ApiError } = require('../../shared/errors');
 const { EVENTS } = require('../../shared/events');
 const { orderedQueue: getOrderedWaiting, checkNearEvents: notifyNear, moveEntry } = require('../bryan/queueService');
-module.exports = function createHeeraRouter({ auth, store, events }) {
+module.exports = function createHeeraRouter({ auth, store, events, serviceManager }) {
   const router = Router();
   router.use('/admin', auth, requireRole('admin'));
   router.get('/admin/dashboard', (_req, res) => {
@@ -22,6 +22,7 @@ module.exports = function createHeeraRouter({ auth, store, events }) {
   });
   router.patch('/admin/services/:serviceId/queue', validate(c.serviceParams, 'params'), validate(c.queueState), (req, res, next) => {
     const { serviceId } = req.validated.params;
+    if (serviceManager) return res.json({ data: c.service.parse(serviceManager.setQueueOpen(serviceId, req.validated.body.isOpen)) });
     const service = store.services.get(serviceId);
     if (!service) return next(new ApiError(404, 'NOT_FOUND', 'Service not found.'));
     const updated = { ...service, isOpen: req.validated.body.isOpen };

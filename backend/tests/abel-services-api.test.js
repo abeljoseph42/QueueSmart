@@ -39,7 +39,7 @@ afterEach(() => {
 test('an admin creates a service that is stored in SQLite and listed with the A3 shape', async () => {
   const created = await create();
   expect(created.status).toBe(201);
-  expect(created.body.data).toEqual({ id: expect.any(String), ...advising, isOpen: true, isActive: true });
+  expect(created.body.data).toEqual({ id: expect.any(String), ...advising, isOpen: false, isActive: true });
   expect(rows()).toEqual([{ id: created.body.data.id, name: 'Student Advising',
     description: 'Course planning help', expected_duration_minutes: 15, priority_level: 1, is_active: 1 }]);
 
@@ -73,7 +73,7 @@ test('PATCH updates only the supplied fields and persists them', async () => {
     .send({ expectedDurationMinutes: 30, priority: 'high' });
   expect(updated.status).toBe(200);
   expect(updated.body.data).toEqual({ id, ...advising, expectedDurationMinutes: 30, priority: 'high',
-    isOpen: true, isActive: true });
+    isOpen: false, isActive: true });
   expect(rows()[0]).toMatchObject({ expected_duration_minutes: 30, priority_level: 2 });
 });
 
@@ -121,25 +121,26 @@ test('writes require a signed-in administrator', async () => {
   expect(rows()[0].name).toBe('Student Advising');
 });
 
-test('users can join the queue of a database-created service', async () => {
+test('users can join the queue of a database-created service once it is opened', async () => {
   const { id } = (await create()).body.data;
+  await request(appAs(admin)).patch(`/api/admin/services/${id}/queue`).send({ isOpen: true });
   const joined = await request(appAs(member)).post(`/api/services/${id}/queue/join`).send({});
   expect(joined.status).toBe(201);
   expect(joined.body.data).toMatchObject({ position: 1, estimatedWaitMinutes: 0,
     entry: { serviceId: id, priority: 'medium' } });
 });
 
-test('closing a queue in memory is preserved when the service is edited', async () => {
+test('editing a service keeps its queue status', async () => {
   const { id } = (await create()).body.data;
-  await request(appAs(admin)).patch(`/api/admin/services/${id}/queue`).send({ isOpen: false });
+  await request(appAs(admin)).patch(`/api/admin/services/${id}/queue`).send({ isOpen: true });
   const updated = await request(appAs(admin)).patch(`/api/services/${id}`).send({ name: 'Renamed' });
-  expect(updated.body.data).toMatchObject({ name: 'Renamed', isOpen: false });
+  expect(updated.body.data).toMatchObject({ name: 'Renamed', isOpen: true });
 });
 
 test('getService returns the API shape or SERVICE_NOT_FOUND', async () => {
   const { id } = (await create()).body.data;
   const manager = createServiceManager({ store, db });
-  expect(manager.getService(id)).toMatchObject({ id, priority: 'medium', isOpen: true });
+  expect(manager.getService(id)).toMatchObject({ id, priority: 'medium', isOpen: false });
   expect(() => manager.getService('missing')).toThrow(expect.objectContaining({ code: 'SERVICE_NOT_FOUND' }));
 });
 

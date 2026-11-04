@@ -54,7 +54,7 @@ test('applies defaults for description, priority, and active state', () => {
 
 test('migrations 001-003 apply together on a fresh database', () => {
   const names = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all().map(row => row.name);
-  expect(names).toEqual(['001_user_credentials.sql', '002_user_profile.sql', '003_services.sql']);
+  expect(names.slice(0, 3)).toEqual(['001_user_credentials.sql', '002_user_profile.sql', '003_services.sql']);
 });
 
 test('exposes priority labels', () => {
