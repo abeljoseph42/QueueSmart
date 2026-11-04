@@ -8,8 +8,8 @@ const { openDatabase } = require('../src/database/connection');
 const { runMigrations } = require('../src/database/migrate');
 const { createServiceManager } = require('../src/modules/abel/serviceManager');
 
-const admin = { id: 'admin-1', name: 'Test Admin', email: 'admin@example.com', role: 'admin' };
-const member = { id: 'user-1', name: 'Test User', email: 'user@example.com', role: 'user' };
+const admin = { id: '00000000-0000-4000-8000-000000000001', name: 'Test Admin', email: 'admin@example.com', role: 'admin' };
+const member = { id: '00000000-0000-4000-8000-000000000002', name: 'Test User', email: 'user@example.com', role: 'user' };
 const advising = { name: 'Student Advising', description: 'Course planning help',
   expectedDurationMinutes: 15, priority: 'medium' };
 
@@ -28,6 +28,8 @@ beforeEach(() => {
   file = path.join(dir, 'test.sqlite');
   db = openDatabase({ filename: file });
   runMigrations(db);
+  [admin, member].forEach(user => db.prepare(`INSERT OR IGNORE INTO user_credentials (id, email, password_hash, role)
+    VALUES (?, ?, 'test-hash', ?)`).run(user.id, user.email, user.role === 'admin' ? 'Administrator' : 'User'));
   store = createStore();
 });
 

@@ -15,10 +15,10 @@ const UTC_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const users = {
-  admin: { id: 'admin-1', name: 'Test Admin', email: 'admin@example.com', role: 'admin' },
-  ana: { id: 'user-1', name: 'Ana', email: 'ana@example.com', role: 'user' },
-  ben: { id: 'user-2', name: 'Ben', email: 'ben@example.com', role: 'user' },
-  cy: { id: 'user-3', name: 'Cy', email: 'cy@example.com', role: 'user' },
+  admin: { id: '00000000-0000-4000-8000-000000000001', name: 'Test Admin', email: 'admin@example.com', role: 'admin' },
+  ana: { id: '00000000-0000-4000-8000-000000000002', name: 'Ana', email: 'ana@example.com', role: 'user' },
+  ben: { id: '00000000-0000-4000-8000-000000000003', name: 'Ben', email: 'ben@example.com', role: 'user' },
+  cy: { id: '00000000-0000-4000-8000-000000000004', name: 'Cy', email: 'cy@example.com', role: 'user' },
 };
 const advising = { name: 'Student Advising', description: 'Course planning help',
   expectedDurationMinutes: 15, priority: 'medium' };
@@ -32,6 +32,8 @@ let app;
 const boot = () => {
   db = openDatabase({ filename: file });
   runMigrations(db);
+  Object.values(users).forEach(user => db.prepare(`INSERT OR IGNORE INTO user_credentials (id, email, password_hash, role)
+    VALUES (?, ?, 'test-hash', ?)`).run(user.id, user.email, user.role === 'admin' ? 'Administrator' : 'User'));
   store = createStore();
   app = createApp({ store, db, resolveUser: async req => users[req.get('x-test-user')] ?? null });
 };
@@ -186,7 +188,7 @@ describe('admin queue status API', () => {
     expect((await as('ana', 'delete', `/api/services/${id}/queue/me`)).status).toBe(200);
     const served = await as('admin', 'post', `/api/admin/services/${id}/queue/serve-next`);
     expect(served.status).toBe(200);
-    expect(served.body.data.entry).toMatchObject({ userId: 'user-2', status: 'served' });
+    expect(served.body.data.entry).toMatchObject({ userId: users.ben.id, status: 'served' });
 
     await setOpen(id, true);
     expect(queueRows()).toHaveLength(1);
