@@ -75,6 +75,9 @@ function checkNearEvents(store, events, serviceId) {
   }
 }
 
+function setQueueOrder(store, serviceId, entryIds) {
+  metaFor(store).order.set(serviceId, [...entryIds]);
+}
 
 function moveEntry(store, serviceId, entryId, newPosition) {
   findService(store, serviceId);
@@ -133,4 +136,4 @@ function leaveQueue({ store, events }, { serviceId, userId }) {
 }
 
 module.exports = { findService, findActiveEntry, waitingEntries, orderedQueue, queueStatusFor,
-  checkNearEvents, moveEntry, joinQueue, requireActiveEntry, getMyStatus, leaveQueue };
+  checkNearEvents, setQueueOrder, moveEntry, joinQueue, requireActiveEntry, getMyStatus, leaveQueue };
