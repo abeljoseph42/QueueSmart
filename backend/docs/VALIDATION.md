@@ -1,5 +1,10 @@
 # QueueSmart A3 validation record
 
+> Historical A3 results: the sections below describe the earlier in-memory
+> implementation. A4 credentials/profile setup, implementation evidence, and
+> reported verification are documented in [A4_NIK_HANDOFF.md](A4_NIK_HANDOFF.md).
+> Accounts and profiles now persist; sessions still reset after restart.
+
 This record replaces the original 25-test scaffold record. It separates automated
 verification from manual browser checks and remaining team acceptance work.
 

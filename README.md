@@ -7,14 +7,19 @@ The A3 implementation includes authentication, service management, user queue
 operations, administrator queue controls, wait estimates, in-app notifications,
 and participation history. The React frontend calls the Express backend.
 
-All application data is held in memory. Restarting the backend clears registered
-users, sessions, services, queue entries, history, and notifications. A configured
-demo administrator is recreated at startup. No database is required for A3.
+A4 adds SQLite persistence for user credentials and profiles. Registration,
+login, administrator bootstrap, and profile viewing/editing use the database.
+Accounts and profile changes survive backend restarts.
+
+Sessions remain in memory and expire after one hour. Restarting the backend
+requires users to log in again. Services, queues, notifications, and participation
+history still use the A3 in-memory implementation until their A4 integration
+is completed.
 
 ## Technology
 
 - Frontend: JavaScript, React, Vite, and React Router.
-- Backend: Node.js, Express, Zod, and an in-memory store.
+- Backend: Node.js, Express, Zod, SQLite, and remaining in-memory feature stores.
 - Testing: Jest and Supertest with coverage thresholds.
 - Integration: REST APIs, Bearer sessions, and a shared frontend request helper.
 
@@ -92,8 +97,8 @@ secrets in them. Keep actual credentials out of committed files.
 6. View user notifications on the dashboard and terminal outcomes in History.
 
 Use separate browser sessions for administrator and user demonstrations.
-Session tokens expire after one hour. After a backend restart, log in again;
-regular accounts and services must also be recreated.
+Session tokens expire after one hour. After a backend restart, log in again.
+Registered accounts and profiles persist; services and queue data currently reset.
 
 Queue Status polls every ten seconds. User Dashboard and History load when opened.
 Admin pages load when opened and refresh their own data after relevant admin
@@ -136,6 +141,7 @@ admin/user browser demonstration.
 - [API reference](backend/docs/API.md)
 - [Validation record](backend/docs/VALIDATION.md)
 - [Original foundation Git workflow](backend/docs/GIT_WORKFLOW.md)
+- [A4 database setup and Nik's handoff](backend/docs/A4_NIK_HANDOFF.md)
 
 The Git workflow document includes historical setup steps. The foundation is
 already published: current feature work should branch from updated main and use
