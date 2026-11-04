@@ -7,3 +7,14 @@ export function getDashboard() {
 export function getHistory() {
   return apiRequest('/me/history')
 }
+
+export function getProfile() {
+  return apiRequest('/me/profile')
+}
+
+export function updateProfile(body) {
+  return apiRequest('/me/profile', {
+    method: 'PATCH',
+    body,
+  })
+}

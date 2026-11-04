@@ -5,6 +5,9 @@ const { createEventBus } = require('./shared/events');
 const { requireAuth } = require('./middleware/auth');
 const { notFound, errorHandler } = require('./shared/errors');
 const { initQueueSubscribers } = require('./modules/abel/subscribers');
+const {
+  createProfileRouter,
+} = require('./modules/nik/profile');
 const routers = ['nik', 'abel', 'bryan', 'heera'].map(owner => require(`./modules/${owner}/router`));
 const {
   createAuthService,
@@ -33,6 +36,14 @@ auth: requireAuth(resolveUser ?? authService.resolveUser),
   app.locals.events = events;
   app.locals.stopSubscribers = initQueueSubscribers({ store, events });
   routers.forEach(createRouter => app.use('/api', createRouter(context)));
+
+  if (db) {
+    app.use('/api', createProfileRouter({
+      db,
+      auth: context.auth,
+    }));
+  }
+
   app.use(notFound);
   app.use(errorHandler);
   return app;

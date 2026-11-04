@@ -17,6 +17,7 @@ export default function Navbar() {
         <NavLink to="/join-queue">Join Queue</NavLink>
         <NavLink to="/queue-status">Queue Status</NavLink>
         <NavLink to="/history">History</NavLink>
+        <NavLink to="/profile">My Profile</NavLink>
         <NavLink to="/admin" end>Admin</NavLink>
         <NavLink to="/admin/services">Services</NavLink>
         <NavLink to="/admin/queues">Manage Queues</NavLink>
