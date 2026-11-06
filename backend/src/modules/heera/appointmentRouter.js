@@ -10,13 +10,14 @@ const bookBody = z.object({
   serviceId: z.string().trim().min(1).max(100),
   startsAt: z.string().min(1).max(40),
 }).strict();
+const rescheduleBody = z.object({ startsAt: z.string().min(1).max(40) }).strict();
 const listQuery = z.object({ status: z.enum(APPOINTMENT_STATUSES).optional() }).strict();
 const appointmentParams = z.object({ appointmentId: z.string().trim().min(1).max(100) });
 const serviceParams = z.object({ serviceId: z.string().trim().min(1).max(100) });
 
-function createAppointmentRouter({ db, auth, now }) {
+function createAppointmentRouter({ db, auth, now, notifications }) {
   const router = Router();
-  const appointments = createAppointmentRepository(db, now ? { now } : undefined);
+  const appointments = createAppointmentRepository(db, { ...(now ? { now } : {}), notifications });
   const services = createServiceRepository(db);
   const admin = [auth, requireRole('admin')];
 
@@ -34,6 +35,12 @@ function createAppointmentRouter({ db, auth, now }) {
     res.json({ data: appointments.cancel(req.validated.params.appointmentId, { userId: req.user.id }) });
   });
 
+  router.post('/me/appointments/:appointmentId/reschedule', auth, validate(appointmentParams, 'params'),
+    validate(rescheduleBody), (req, res) => {
+      const { appointmentId } = req.validated.params;
+      res.json({ data: appointments.reschedule(appointmentId, req.validated.body, { userId: req.user.id }) });
+    });
+
   router.get('/admin/services/:serviceId/appointments', ...admin, validate(serviceParams, 'params'),
     validate(listQuery, 'query'), (req, res) => {
       const { serviceId } = req.validated.params;
@@ -43,6 +50,11 @@ function createAppointmentRouter({ db, auth, now }) {
 
   router.post('/admin/appointments/:appointmentId/cancel', ...admin, validate(appointmentParams, 'params'),
     (req, res) => res.json({ data: appointments.cancel(req.validated.params.appointmentId) }));
+
+  router.post('/admin/appointments/:appointmentId/reschedule', ...admin, validate(appointmentParams, 'params'),
+    validate(rescheduleBody), (req, res) => {
+      res.json({ data: appointments.reschedule(req.validated.params.appointmentId, req.validated.body) });
+    });
 
   router.post('/admin/appointments/:appointmentId/complete', ...admin, validate(appointmentParams, 'params'),
     (req, res) => res.json({ data: appointments.complete(req.validated.params.appointmentId) }));
