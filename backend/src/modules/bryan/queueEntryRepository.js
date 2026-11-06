@@ -80,6 +80,22 @@ function createQueueEntryRepository(db, { now = () => new Date() } = {}) {
     return findById(entryId, conn);
   }
 
+  function updatePriority(entryId, priorityLevel, conn = db) {
+    const entry = findById(entryId, conn);
+    if (!entry || entry.status !== 'waiting') return null;
+    conn.prepare('UPDATE queue_entry SET priority_level = ? WHERE id = ?').run(priorityLevel, entryId);
+    recalculatePositions(entry.queueId, conn);
+    return findById(entryId, conn);
+  }
+
+  function countByStatus(conn = db) {
+    return { ...conn.prepare(`SELECT
+      COALESCE(SUM(status = 'waiting'), 0) AS waitingCount,
+      COALESCE(SUM(status = 'served'), 0) AS servedCount,
+      COALESCE(SUM(status = 'canceled'), 0) AS canceledCount
+      FROM queue_entry`).get() };
+  }
+
   function listHistory(userId, { limit, offset = 0 } = {}, conn = db) {
     return conn.prepare(`
       SELECT * FROM queue_entry
@@ -89,7 +105,10 @@ function createQueueEntryRepository(db, { now = () => new Date() } = {}) {
     `).all(userId, clampLimit(limit), Math.max(0, Number.isInteger(offset) ? offset : 0)).map(toEntry);
   }
 
-  return { findById, findWaiting, listWaiting, recalculatePositions, insertWaiting, finishEntry, listHistory };
+    return {
+    findById, findWaiting, listWaiting, recalculatePositions, insertWaiting, finishEntry, updatePriority,
+    countByStatus, listHistory,
+    };
 }
 
 module.exports = {
