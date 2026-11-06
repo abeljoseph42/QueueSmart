@@ -52,7 +52,15 @@ const as = (who, method, url) => request(app)[method](url).set('x-test-user', wh
 const createService = async (body = advising) => (await as('admin', 'post', '/api/services').send(body)).body.data;
 const setOpen = (id, isOpen) => as('admin', 'patch', `/api/admin/services/${id}/queue`).send({ isOpen });
 const openService = async body => { const s = await createService(body); await setOpen(s.id, true); return s; };
-const join = (who, id) => as(who, 'post', `/api/services/${id}/queue/join`).send({});
+const nextMillisecond = async () => {
+  const start = Date.now();
+  while (Date.now() === start) await new Promise(resolve => setImmediate(resolve));
+};
+const join = async (who, id) => {
+  const res = await as(who, 'post', `/api/services/${id}/queue/join`).send({});
+  await nextMillisecond();
+  return res;
+};
 const serve = (who, id) => as(who, 'post', `/api/admin/services/${id}/queue/serve-next`);
 const adminQueue = id => as('admin', 'get', `/api/admin/services/${id}/queue`);
 const setPriority = (who, id, entryId, body) => as(who, 'patch', `/api/admin/services/${id}/queue/${entryId}`).send(body);
@@ -78,11 +86,11 @@ describe('serve-next', () => {
     expect(res.body.data.entry).toMatchObject({ id: ana.id, userId: users.ana.id, status: 'served' });
     expect(row(ana.id)).toMatchObject({ status: 'served', position: 0 });
     expect(row(ana.id).finished_at).not.toBeNull();
-    expect(log.map(([name]) => name)).toEqual([EVENTS.SERVED, EVENTS.NEAR]); 
+    expect(log.map(([name]) => name)).toEqual([EVENTS.SERVED, EVENTS.NEAR]);
     const queue = (await adminQueue(service.id)).body.data;
     expect(queue.map(s => [s.entry.userId, s.position, s.estimatedWaitMinutes]))
       .toEqual([[users.ben.id, 1, 0], [users.cy.id, 2, 15]]);
-    expect(store.queueEntries.get(ana.id).status).toBe('served'); 
+    expect(store.queueEntries.get(ana.id).status).toBe('served');
   });
 
   test('empty queues return 409 QUEUE_EMPTY and unknown services 404', async () => {
@@ -168,7 +176,7 @@ describe('priority', () => {
     const service = await openService();
     const other = await openService({ ...advising, name: 'Technical Support' });
     const { ana, ben } = await threeWaiting(service);
-    await serve('admin', service.id); 
+    await serve('admin', service.id);
     expect((await setPriority('admin', service.id, ana.id, { priority: 'high' })).status).toBe(404);
     expect((await setPriority('admin', other.id, ben.id, { priority: 'high' })).status).toBe(404);
     expect((await setPriority('admin', service.id, randomUUID(), { priority: 'high' })).status).toBe(404);
@@ -186,7 +194,7 @@ describe('admin remove', () => {
     expect(row(ana.id)).toMatchObject({ status: 'canceled', position: 0 });
     expect(log[0]).toEqual([EVENTS.REMOVED, expect.objectContaining({ id: ana.id })]);
     expect(await waitingUsers(service.id)).toEqual([users.ben.id, users.cy.id]);
-    expect((await remove('admin', service.id, ana.id)).status).toBe(404); 
+    expect((await remove('admin', service.id, ana.id)).status).toBe(404);
   });
 });
 
@@ -281,58 +289,96 @@ describe('contract functions', () => {
 });
 
 describe('notifications', () => {
-  test('join and serve enqueue a notification in the same transaction and deliver it after commit', async () => {
+  const notificationRows = userId => db.prepare(`SELECT type, event_key, status, message FROM notification
+    WHERE user_id = ? ORDER BY created_at, rowid`).all(userId).map(r => ({ ...r }));
+  const until = async check => {
+    for (let i = 0; i < 200 && !check(); i += 1) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(check()).toBe(true);
+  };
+
+  test('joining and being served through the API each store and deliver one notification', async () => {
+    const service = await openService();
+    const entry = (await join('ana', service.id)).body.data.entry;
+    await join('ana', service.id);
+    await serve('admin', service.id);
+    await until(() => notificationRows(users.ana.id).every(n => n.status === 'sent'));
+    expect(notificationRows(users.ana.id)).toEqual([
+      { type: 'queue.joined', event_key: `queue.joined:${entry.id}`, status: 'sent',
+        message: 'You joined the Student Advising queue.' },
+      { type: 'queue.served', event_key: `queue.served:${entry.id}`, status: 'sent',
+        message: 'You have been served at Student Advising.' },
+    ]);
+    const mine = (await as('ana', 'get', '/api/me/notifications')).body.data.items.map(n => n.type);
+    expect(mine).toEqual(['queue.served', 'queue.joined']);
+    expect((await as('ben', 'get', '/api/me/notifications')).body.data.items).toEqual([]);
+  });
+
+  test('leaving, removal, priority changes, and failed joins send nothing', async () => {
+    const service = await openService();
+    const { ana, ben, cy } = await threeWaiting(service);
+    await as('ana', 'delete', `/api/services/${service.id}/queue/me`);
+    await remove('admin', service.id, ben.id);
+    await setPriority('admin', service.id, cy.id, { priority: 'high' });
+    const closed = await createService({ ...advising, name: 'Closed Desk' });
+    await join('ana', closed.id);
+    expect(notificationRows(users.ana.id).map(n => n.event_key)).toEqual([`queue.joined:${ana.id}`]);
+    expect(notificationRows(users.ben.id).map(n => n.type)).toEqual(['queue.joined']);
+    expect(notificationRows(users.cy.id).map(n => n.type)).toEqual(['queue.joined']);
+  });
+
+  test('the email is sent after commit with the user address, subject, and message', async () => {
     const send = jest.fn(async () => {});
     const notifications = createNotificationService(db, { send });
     const service = await openService();
     const queueId = queueIdOf(service.id);
     const svc = createQueueEntryService({ db, store, events: app.locals.events, notifications });
-
-    const entry = svc.joinQueue(users.ana, queueId);
-    expect(() => svc.joinQueue(users.ana, queueId)).toThrow(expect.objectContaining({ code: 'ALREADY_IN_QUEUE' }));
+    svc.joinQueue(users.ana, queueId);
     svc.serveNext(users.admin, queueId);
     await svc.settled();
-
-    const list = notifications.listForUser(users.ana.id).items;
-    expect(list.map(n => [n.type, n.status, n.message])).toEqual([
-      ['queue.served', 'sent', 'You have been served at Student Advising.'],
-      ['queue.joined', 'sent', 'You joined the Student Advising queue.'],
+    expect(send.mock.calls.map(([mail]) => [mail.to, mail.subject, mail.text])).toEqual([
+      [users.ana.email, 'Joined Student Advising', 'You joined the Student Advising queue.'],
+      [users.ana.email, 'Served at Student Advising', 'You have been served at Student Advising.'],
     ]);
-    expect(list.every(n => n.eventKey.includes(entry.id))).toBe(true);
-    expect(send).toHaveBeenCalledTimes(2);
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: users.ana.email }));
   });
 
-  test('a failed email is recorded without undoing the join', async () => {
+  test('a failed email is recorded as failed and does not undo the join or the serve', async () => {
     const notifications = createNotificationService(db, { send: async () => { throw new Error('SMTP down'); } });
     const service = await openService();
+    const queueId = queueIdOf(service.id);
     const svc = createQueueEntryService({ db, store, events: app.locals.events, notifications });
-    const entry = svc.joinQueue(users.ana, queueIdOf(service.id));
+    const entry = svc.joinQueue(users.ana, queueId);
+    svc.serveNext(users.admin, queueId);
     await svc.settled();
-    expect(row(entry.id).status).toBe('waiting');
-    expect(notifications.listForUser(users.ana.id).items[0]).toMatchObject({ status: 'failed', lastError: 'SMTP down' });
+    expect(row(entry.id).status).toBe('served');
+    expect(notificationRows(users.ana.id).map(n => n.status)).toEqual(['failed', 'failed']);
+    expect(notifications.listForUser(users.ana.id).items[0].lastError).toBe('SMTP down');
   });
 
-  test('an unexpected delivery error never reaches the caller', async () => {
-    const real = createNotificationService(db);
-    const notifications = { ...real, deliverNotification: async () => { throw new Error('crash'); } };
-    const service = await openService();
-    const svc = createQueueEntryService({ db, store, events: app.locals.events, notifications });
-    const entry = svc.joinQueue(users.ana, queueIdOf(service.id));
-    await expect(svc.settled()).resolves.toEqual([undefined]);
-    expect(row(entry.id).status).toBe('waiting');
-    expect(real.listForUser(users.ana.id).items[0].status).toBe('pending');
-  });
-
-  test('a rolled-back join leaves no notification behind', async () => {
+  test('a rolled-back join or serve leaves no notification behind', async () => {
     const notifications = createNotificationService(db, { send: jest.fn() });
     const service = await openService();
+    const queueId = queueIdOf(service.id);
     const svc = createQueueEntryService({ db, store, events: app.locals.events, notifications });
     expect(() => withWriteTransaction(db, tx => {
-      svc.joinInTransaction(tx, users.ana, queueIdOf(service.id));
+      svc.joinInTransaction(tx, users.ana, queueId);
       throw new Error('boom');
     })).toThrow('boom');
-    expect(notifications.listForUser(users.ana.id).total).toBe(0);
+    svc.joinQueue(users.ben, queueId);
+    await svc.settled();
+    expect(() => withWriteTransaction(db, tx => {
+      svc.serveInTransaction(tx, users.admin, queueId);
+      throw new Error('boom');
+    })).toThrow('boom');
+    expect(notificationRows(users.ana.id)).toEqual([]);
+    expect(notificationRows(users.ben.id).map(n => n.type)).toEqual(['queue.joined']);
+  });
+
+  test('without a notification service nothing is queued and settled resolves', async () => {
+    const service = await openService();
+    const svc = createQueueEntryService({ db, store, events: app.locals.events });
+    svc.joinQueue(users.cy, queueIdOf(service.id));
+    await expect(svc.settled()).resolves.toBeUndefined();
+    expect(notificationRows(users.cy.id)).toEqual([]);
   });
 });
 

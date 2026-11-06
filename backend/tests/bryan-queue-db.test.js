@@ -39,7 +39,15 @@ const as = (who, method, url) => request(app)[method](url).set('x-test-user', wh
 const createService = async (body = advising) => (await as('admin', 'post', '/api/services').send(body)).body.data;
 const setOpen = (id, isOpen) => as('admin', 'patch', `/api/admin/services/${id}/queue`).send({ isOpen });
 const openService = async body => { const s = await createService(body); await setOpen(s.id, true); return s; };
-const join = (who, id) => as(who, 'post', `/api/services/${id}/queue/join`).send({});
+const nextMillisecond = async () => {
+  const start = Date.now();
+  while (Date.now() === start) await new Promise(resolve => setImmediate(resolve));
+};
+const join = async (who, id) => {
+  const res = await as(who, 'post', `/api/services/${id}/queue/join`).send({});
+  await nextMillisecond();
+  return res;
+};
 const leave = (who, id) => as(who, 'delete', `/api/services/${id}/queue/me`);
 const status = (who, id) => as(who, 'get', `/api/services/${id}/queue/me`);
 const rowsFor = userId => db.prepare('SELECT * FROM queue_entry WHERE user_id = ? ORDER BY joined_at, id')

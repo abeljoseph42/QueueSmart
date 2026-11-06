@@ -1,4 +1,3 @@
-const { randomUUID } = require('node:crypto');
 const { ApiError } = require('../../shared/errors');
 const { EVENTS } = require('../../shared/events');
 const { withWriteTransaction } = require('../../database/connection');
@@ -22,7 +21,6 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
   const entries = createQueueEntryRepository(db, { now });
   const services = createServiceRepository(db);
   const queues = createQueueRepository(db);
-  const deliveries = new Set();
 
   function toA3Entry(entry, serviceId, canceledAs = 'left') {
     return {
@@ -64,21 +62,16 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
 
   function enqueue(tx, entry, type, subject, message) {
     if (!notifications) return null;
-    const eventKey = `${type}:${entry.id}:${randomUUID()}`;
+    const eventKey = `${type}:${entry.id}`;
     return notifications.enqueueNotification(tx, { userId: entry.userId, eventKey, type, subject, message })
       .notification.id;
   }
 
   function deliver(notificationId) {
-    if (!notificationId) return;
-    const delivery = Promise.resolve()
-      .then(() => notifications.deliverNotification(notificationId))
-      .catch(() => {})
-      .finally(() => deliveries.delete(delivery));
-    deliveries.add(delivery);
+    if (notificationId) notifications.deliverAfterCommit(notificationId);
   }
 
-  const settled = () => Promise.all([...deliveries]);
+  const settled = () => (notifications ? notifications.settled() : Promise.resolve());
 
   function queueForService(serviceId, conn = db) {
     const service = services.findById(serviceId, conn);
@@ -86,12 +79,11 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
     return { service, queue: queues.findByServiceId(serviceId, conn) };
   }
 
-
   function joinInTransaction(tx, actor, queueId) {
     if (!tx.prepare('SELECT 1 FROM user_credentials WHERE id = ?').get(actor.id)) {
       throw new ApiError(401, 'UNAUTHENTICATED', 'Authentication required.');
     }
-    const { service } = assertJoinable(tx, queueId); 
+    const { service } = assertJoinable(tx, queueId);
     if (entries.findWaiting(queueId, actor.id, tx)) {
       throw new ApiError(409, 'ALREADY_IN_QUEUE', 'You are already waiting in this queue.');
     }
@@ -104,7 +96,7 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
   function joinQueue(actor, queueId) {
     const { entry, serviceId, notificationId } = withWriteTransaction(db, tx => joinInTransaction(tx, actor, queueId));
     syncQueue(queueId, serviceId);
-    events.publish(EVENTS.JOINED, { entry: toA3Entry(entry, serviceId) }); 
+    events.publish(EVENTS.JOINED, { entry: toA3Entry(entry, serviceId) });
     checkNearEvents(store, events, serviceId);
     deliver(notificationId);
     return entry;
@@ -136,7 +128,7 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
 
   function serveInTransaction(tx, admin, queueId) {
     requireAdmin(admin);
-    const queue = queues.getQueue(queueId, tx); 
+    const queue = queues.getQueue(queueId, tx);
     const [first] = entries.listWaiting(queueId, tx);
     if (!first) throw new ApiError(409, 'QUEUE_EMPTY', 'Queue is empty.');
     const entry = entries.finishEntry(first.id, 'served', tx);
@@ -185,7 +177,6 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
 
   const getEntryStats = () => entries.countByStatus();
 
-
   function joinByService(actor, serviceId) {
     const { service, queue } = queueForService(serviceId);
     return toA3Status(joinQueue(actor, queue.id), service);
@@ -205,7 +196,6 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
     if (!entry) throw notInQueue();
     return toA3Status(entry, service);
   }
-
 
   function adminQueueByService(serviceId) {
     const { service, queue } = queueForService(serviceId);
