@@ -71,22 +71,26 @@ export default function AdminDashboard() {
           <h2>Total Services</h2>
           <p>{metric(metrics?.serviceCount)}</p>
         </article>
-        {metrics?.appointmentCounts && (
-          <>
-            <article className="card admin-dashboard__metric">
-              <h2>Appointments Booked</h2>
-              <p>{metrics.appointmentCounts.booked}</p>
-            </article>
-            <article className="card admin-dashboard__metric">
-              <h2>Appointments Completed</h2>
-              <p>{metrics.appointmentCounts.completed}</p>
-            </article>
-            <article className="card admin-dashboard__metric">
-              <h2>Appointments Canceled</h2>
-              <p>{metrics.appointmentCounts.canceled}</p>
-            </article>
-          </>
-        )}
+        <article className="card admin-dashboard__metric">
+          <h2>Served</h2>
+          <p>{metric(metrics?.servedCount ?? 0)}</p>
+        </article>
+        <article className="card admin-dashboard__metric">
+          <h2>Canceled Visits</h2>
+          <p>{metric(metrics?.canceledCount ?? 0)}</p>
+        </article>
+        <article className="card admin-dashboard__metric">
+          <h2>Appointments Booked</h2>
+          <p>{metric(metrics?.appointmentCounts?.booked ?? 0)}</p>
+        </article>
+        <article className="card admin-dashboard__metric">
+          <h2>Appointments Completed</h2>
+          <p>{metric(metrics?.appointmentCounts?.completed ?? 0)}</p>
+        </article>
+        <article className="card admin-dashboard__metric">
+          <h2>Appointments Canceled</h2>
+          <p>{metric(metrics?.appointmentCounts?.canceled ?? 0)}</p>
+        </article>
       </section>
       {metricsError && <p className="field-error admin-dashboard__error" role="alert">{metricsError.text}{metricsError.login && <> <Link to="/login">Log in</Link></>}</p>}
       <section aria-labelledby="admin-services-heading">
