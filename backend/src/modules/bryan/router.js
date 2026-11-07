@@ -6,7 +6,6 @@ const { requireRole } = require('../../middleware/auth');
 const { ApiError } = require('../../shared/errors');
 const queue = require('./queueService');
 const { createQueueEntryService } = require('./queueEntryService');
-const { createNotificationService } = require('../heera/notificationService');
 
 const entryUpdate = z.union([c.reorder, z.object({ priority: c.priority }).strict()]);
 
@@ -19,8 +18,7 @@ const adminHistoryQuery = historyQuery.extend({ userId: z.string().trim().min(1)
 
 module.exports = function createBryanRouter({ auth, store, events, db, notificationService }) {
   const router = Router();
-  const notifications = db ? notificationService ?? createNotificationService(db) : undefined;
-  const entries = db ? createQueueEntryService({ db, store, events, notifications }) : null;
+  const entries = db ? createQueueEntryService({ db, store, events, notifications: notificationService }) : null;
   if (entries) entries.hydrate();
   const target = req => ({ serviceId: req.validated.params.serviceId, userId: req.user.id });
   router.post('/services/:serviceId/queue/join', auth, validate(c.serviceParams, 'params'),

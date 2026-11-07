@@ -7,13 +7,11 @@ const { EVENTS } = require('../../shared/events');
 const { orderedQueue: getOrderedWaiting, checkNearEvents: notifyNear, moveEntry } = require('../bryan/queueService');
 const { createAppointmentRouter } = require('./appointmentRouter');
 const { createNotificationRouter } = require('./notificationRouter');
-const { createNotificationService } = require('./notificationService');
-const { createAppointmentRepository } = require('./appointmentRepository');
-module.exports = function createHeeraRouter({ auth, store, events, serviceManager, db }) {
+module.exports = function createHeeraRouter({ auth, store, events, serviceManager, db, notificationService }) {
   const router = Router();
   // Appointments are database-backed, so they exist only when the app has a database.
   if (db) {
-    const notifications = createNotificationService(db);
+    const notifications = notificationService;
     router.use(createAppointmentRouter({ db, auth, notifications }));
     router.use(createNotificationRouter({ auth, notifications }));
   }
@@ -26,7 +24,6 @@ module.exports = function createHeeraRouter({ auth, store, events, serviceManage
       waitingCount: entries.filter(entry => entry.status === 'waiting').length,
       openServiceCount: services.filter(service => service.isOpen === true).length,
       ...serviceManager?.getStats(),
-      ...(db ? { appointmentCounts: createAppointmentRepository(db).countByStatus() } : {}),
     }) });
   });
   router.get('/admin/services/:serviceId/queue', validate(c.serviceParams, 'params'), (req, res) => {

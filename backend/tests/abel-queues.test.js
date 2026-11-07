@@ -220,7 +220,8 @@ describe('admin dashboard service and queue statistics', () => {
     await setOpen(first.id, true);
     await as('admin', 'patch', `/api/services/${second.id}`).send({ isActive: false });
     const expected = { serviceCount: 3, activeServiceCount: 2, openQueueCount: 1, closedQueueCount: 2,
-      openServiceCount: 1, waitingCount: 0, appointmentCounts: { booked: 0, canceled: 0, completed: 0 } };
+      openServiceCount: 1, waitingCount: 0, servedCount: 0, canceledCount: 0,
+      appointmentCounts: { booked: 0, canceled: 0, completed: 0 } };
     expect((await as('admin', 'get', '/api/admin/dashboard')).body.data).toEqual(expected);
 
     app.locals.stopSubscribers();

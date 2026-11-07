@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import NotificationList from '../../components/notifications/NotificationList'
 import { getDashboard } from '../../api/user'
+import { listMyNotifications } from '../../api/appointments'
 import { statusLabel } from '../../api/queue'
 import './UserDashboard.css'
 
@@ -48,9 +49,12 @@ export default function UserDashboard() {
 
   useEffect(() => {
     let active = true
-    getDashboard()
-      .then((data) => {
-        if (active) setDashboard(data)
+    Promise.all([
+      getDashboard(),
+      listMyNotifications(1).then((page) => page.items.slice(0, 5), () => null),
+    ])
+      .then(([data, recent]) => {
+        if (active) setDashboard(recent ? { ...data, notifications: recent } : data)
       })
       .catch((err) => {
         if (!active) return
@@ -153,6 +157,7 @@ export default function UserDashboard() {
         <section className="card" aria-labelledby="notifications-heading">
           <div className="dashboard-notifications-header">
             <h2 id="notifications-heading">Notifications</h2>
+            <Link to="/notifications">View all</Link>
           </div>
 
           <NotificationList notifications={notifications} />

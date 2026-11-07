@@ -8,6 +8,7 @@ const { checkNearEvents, setQueueOrder } = require('./queueService');
 const { createQueueEntryRepository } = require('./queueEntryRepository');
 
 const PRIORITY_LEVELS = Object.freeze([0, 1, 2]);
+const NEAR_POSITIONS = 2;
 
 const serviceNotFound = () => new ApiError(404, 'NOT_FOUND', 'Service not found.');
 const entryNotFound = () => new ApiError(404, 'NOT_FOUND', 'Queue entry not found.');
@@ -61,14 +62,22 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
   }
 
   function enqueue(tx, entry, type, subject, message) {
-    if (!notifications) return null;
+    if (!notifications) return [];
     const eventKey = `${type}:${entry.id}`;
-    return notifications.enqueueNotification(tx, { userId: entry.userId, eventKey, type, subject, message })
-      .notification.id;
+    const { notification, created } = notifications.enqueueNotification(tx,
+      { userId: entry.userId, eventKey, type, subject, message });
+    return created ? [notification.id] : [];
   }
 
-  function deliver(notificationId) {
-    if (notificationId) notifications.deliverAfterCommit(notificationId);
+  function enqueueNear(tx, queueId) {
+    if (!notifications) return [];
+    const { name } = services.findById(queues.getQueue(queueId, tx).serviceId, tx);
+    return entries.listWaiting(queueId, tx).slice(0, NEAR_POSITIONS).flatMap(entry =>
+      enqueue(tx, entry, 'queue.near', `Almost ready at ${name}`, `You're almost up in the ${name} queue.`));
+  }
+
+  function deliver(notificationIds) {
+    notificationIds.forEach(id => notifications.deliverAfterCommit(id));
   }
 
   const settled = () => (notifications ? notifications.settled() : Promise.resolve());
@@ -88,32 +97,35 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
       throw new ApiError(409, 'ALREADY_IN_QUEUE', 'You are already waiting in this queue.');
     }
     const entry = entries.insertWaiting({ queueId, userId: actor.id, priorityLevel: service.priorityLevel }, tx);
-    const notificationId = enqueue(tx, entry, 'queue.joined', `Joined ${service.name}`,
-      `You joined the ${service.name} queue.`);
-    return { entry, serviceId: service.id, notificationId };
+    const notificationIds = [
+      ...enqueue(tx, entry, 'queue.joined', `Joined ${service.name}`, `You joined the ${service.name} queue.`),
+      ...enqueueNear(tx, queueId),
+    ];
+    return { entry, serviceId: service.id, notificationIds };
   }
 
   function joinQueue(actor, queueId) {
-    const { entry, serviceId, notificationId } = withWriteTransaction(db, tx => joinInTransaction(tx, actor, queueId));
+    const { entry, serviceId, notificationIds } = withWriteTransaction(db, tx => joinInTransaction(tx, actor, queueId));
     syncQueue(queueId, serviceId);
     events.publish(EVENTS.JOINED, { entry: toA3Entry(entry, serviceId) });
     checkNearEvents(store, events, serviceId);
-    deliver(notificationId);
+    deliver(notificationIds);
     return entry;
   }
 
   function cancelInTransaction(tx, actor, entryId) {
     const entry = entries.findById(entryId, tx);
     if (!entry || (actor.role !== 'admin' && entry.userId !== actor.id)) throw entryNotFound();
-    if (entry.status === 'canceled') return { entry, changed: false };
+    if (entry.status === 'canceled') return { entry, changed: false, notificationIds: [] };
     if (entry.status === 'served') {
       throw new ApiError(409, 'ENTRY_FINALIZED', 'This queue entry has already been served.');
     }
-    return { entry: entries.finishEntry(entryId, 'canceled', tx), changed: true };
+    const canceled = entries.finishEntry(entryId, 'canceled', tx);
+    return { entry: canceled, changed: true, notificationIds: enqueueNear(tx, entry.queueId) };
   }
 
   function cancelEntry(actor, entryId) {
-    const { entry, changed } = withWriteTransaction(db, tx => cancelInTransaction(tx, actor, entryId));
+    const { entry, changed, notificationIds } = withWriteTransaction(db, tx => cancelInTransaction(tx, actor, entryId));
     const serviceId = queues.getQueue(entry.queueId).serviceId;
     const canceledAs = entry.userId === actor.id ? 'left' : 'removed';
     if (changed) {
@@ -122,6 +134,7 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
       syncQueue(entry.queueId, serviceId);
       events.publish(canceledAs === 'left' ? EVENTS.LEFT : EVENTS.REMOVED, { entry: a3 });
       checkNearEvents(store, events, serviceId);
+      deliver(notificationIds);
     }
     return { entry, changed, serviceId, canceledAs };
   }
@@ -133,19 +146,21 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
     if (!first) throw new ApiError(409, 'QUEUE_EMPTY', 'Queue is empty.');
     const entry = entries.finishEntry(first.id, 'served', tx);
     const service = services.findById(queue.serviceId, tx);
-    const notificationId = enqueue(tx, entry, 'queue.served', `Served at ${service.name}`,
-      `You have been served at ${service.name}.`);
-    return { entry, serviceId: queue.serviceId, notificationId };
+    const notificationIds = [
+      ...enqueue(tx, entry, 'queue.served', `Served at ${service.name}`, `You have been served at ${service.name}.`),
+      ...enqueueNear(tx, queueId),
+    ];
+    return { entry, serviceId: queue.serviceId, notificationIds };
   }
 
   function serveNext(admin, queueId) {
-    const { entry, serviceId, notificationId } = withWriteTransaction(db, tx => serveInTransaction(tx, admin, queueId));
+    const { entry, serviceId, notificationIds } = withWriteTransaction(db, tx => serveInTransaction(tx, admin, queueId));
     const a3 = toA3Entry(entry, serviceId);
     mirror(a3);
     syncQueue(queueId, serviceId);
     events.publish(EVENTS.SERVED, { entry: a3 });
     checkNearEvents(store, events, serviceId);
-    deliver(notificationId);
+    deliver(notificationIds);
     return entry;
   }
 
@@ -160,17 +175,19 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
     if (entry.status !== 'waiting') {
       throw new ApiError(409, 'ENTRY_FINALIZED', 'This queue entry is no longer waiting.');
     }
-    if (entry.priorityLevel === priorityLevel) return { entry, changed: false };
-    return { entry: entries.updatePriority(entryId, priorityLevel, tx), changed: true };
+    if (entry.priorityLevel === priorityLevel) return { entry, changed: false, notificationIds: [] };
+    const updated = entries.updatePriority(entryId, priorityLevel, tx);
+    return { entry: updated, changed: true, notificationIds: enqueueNear(tx, entry.queueId) };
   }
 
   function setEntryPriority(admin, entryId, priorityLevel) {
-    const { entry, changed } = withWriteTransaction(db,
+    const { entry, changed, notificationIds } = withWriteTransaction(db,
       tx => setPriorityInTransaction(tx, admin, entryId, priorityLevel));
     if (changed) {
       const serviceId = queues.getQueue(entry.queueId).serviceId;
       syncQueue(entry.queueId, serviceId);
       checkNearEvents(store, events, serviceId);
+      deliver(notificationIds);
     }
     return entry;
   }
@@ -226,9 +243,15 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
     return toA3Status(entry, service);
   }
 
+  function nameOf(userId) {
+    return db.prepare(`SELECT p.full_name AS name FROM user_credentials c
+      JOIN user_profile p ON p.email = c.email WHERE c.id = ?`).get(userId)?.name ?? null;
+  }
+
   function adminQueueByService(serviceId) {
     const { service, queue } = queueForService(serviceId);
-    return entries.listWaiting(queue.id).map(entry => toA3Status(entry, service));
+    return entries.listWaiting(queue.id)
+      .map(entry => ({ ...toA3Status(entry, service), userName: nameOf(entry.userId) }));
   }
 
   function serveNextByService(admin, serviceId) {
@@ -264,4 +287,4 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
   };
 }
 
-module.exports = { PRIORITY_LEVELS, createQueueEntryService };
+module.exports = { PRIORITY_LEVELS, NEAR_POSITIONS, createQueueEntryService };

@@ -43,17 +43,18 @@ export default function QueueManagement() {
     }
   }
 
+  const nameOf = (item) => item && (item.userName ?? item.entry.userId)
   const queuePath = (suffix = '') => `/admin/services/${encodeURIComponent(service.id)}/queue${suffix}`
   const entryPath = (entryId) => queuePath(`/${encodeURIComponent(entryId)}`)
 
   const toggleOpen = () => run(() => apiRequest(queuePath(), { method: 'PATCH', body: { isOpen: !service.isOpen } }),
     (updated) => `Queue is now ${updated.isOpen ? 'open' : 'closed'}.`)
   const serveNext = () => run(() => apiRequest(queuePath('/serve-next'), { method: 'POST' }),
-    ({ entry }) => `${entry.userId} has been served.`)
-  const removeEntry = (entry) => run(() => apiRequest(entryPath(entry.id), { method: 'DELETE' }),
-    () => `${entry.userId} has been removed from the queue.`)
-  const changePriority = (entry, priority) => run(() => apiRequest(entryPath(entry.id), { method: 'PATCH', body: { priority } }),
-    () => `${entry.userId} priority set to ${priority}.`)
+    ({ entry }) => `${nameOf(queue.find((item) => item.entry.id === entry.id)) ?? entry.userId} has been served.`)
+  const removeEntry = (item) => run(() => apiRequest(entryPath(item.entry.id), { method: 'DELETE' }),
+    () => `${nameOf(item)} has been removed from the queue.`)
+  const changePriority = (item, priority) => run(() => apiRequest(entryPath(item.entry.id), { method: 'PATCH', body: { priority } }),
+    () => `${nameOf(item)} priority set to ${priority}.`)
 
   if (loading) {
     return <section className="card queue-management" aria-busy="true"><p>Loading queue…</p></section>
@@ -101,25 +102,29 @@ export default function QueueManagement() {
               </tr>
             </thead>
             <tbody>
-              {queue.map(({ entry, position, estimatedWaitMinutes }) => (
-                <tr key={entry.id}>
-                  <td>{position}</td>
-                  <th scope="row">{entry.userId}</th>
-                  <td>
-                    <select value={entry.priority} onChange={(event) => changePriority(entry, event.target.value)} disabled={busy} aria-label={`Priority for ${entry.userId}`}>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </select>
-                  </td>
-                  <td>{estimatedWaitMinutes} minutes</td>
-                  <td>
-                    <div className="queue-management__actions">
-                      <button type="button" className="button-secondary" onClick={() => removeEntry(entry)} disabled={busy} aria-label={`Remove ${entry.userId}`}>Remove</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {queue.map((item) => {
+                const { entry, position, estimatedWaitMinutes } = item
+                const name = nameOf(item)
+                return (
+                  <tr key={entry.id}>
+                    <td>{position}</td>
+                    <th scope="row">{name}</th>
+                    <td>
+                      <select value={entry.priority} onChange={(event) => changePriority(item, event.target.value)} disabled={busy} aria-label={`Priority for ${name}`}>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </td>
+                    <td>{estimatedWaitMinutes} minutes</td>
+                    <td>
+                      <div className="queue-management__actions">
+                        <button type="button" className="button-secondary" onClick={() => removeEntry(item)} disabled={busy} aria-label={`Remove ${name}`}>Remove</button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
               {queue.length === 0 && (
                 <tr><td colSpan={5} className="queue-management__empty">No one is waiting in this queue.</td></tr>
               )}

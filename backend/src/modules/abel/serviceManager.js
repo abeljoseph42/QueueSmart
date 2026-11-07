@@ -2,6 +2,8 @@ const { ApiError } = require('../../shared/errors');
 const { withWriteTransaction } = require('../../database/connection');
 const { createServiceRepository } = require('./serviceRepository');
 const { createQueueRepository } = require('./queueRepository');
+const { createQueueEntryRepository } = require('../bryan/queueEntryRepository');
+const { createAppointmentRepository } = require('../heera/appointmentRepository');
 
 // The A3 API keeps low/medium/high; the database stores priority_level 0/1/2.
 const PRIORITY_TO_LEVEL = Object.freeze({ low: 0, medium: 1, high: 2 });
@@ -70,7 +72,9 @@ function createServiceManager({ store, db }) {
       (SELECT count(*) FROM service) AS serviceCount,
       (SELECT count(*) FROM service WHERE is_active = 1) AS activeServiceCount,
       (SELECT count(*) FROM queue WHERE status = 'open') AS openQueueCount,
-      (SELECT count(*) FROM queue WHERE status = 'closed') AS closedQueueCount`).get() };
+      (SELECT count(*) FROM queue WHERE status = 'closed') AS closedQueueCount`).get(),
+    ...createQueueEntryRepository(db).countByStatus(),
+    appointmentCounts: createAppointmentRepository(db).countByStatus() };
   }
 
   return { createService, listServices, updateService, getService, setQueueOpen, getStats };

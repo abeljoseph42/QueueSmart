@@ -4,10 +4,6 @@ export function getDashboard() {
   return apiRequest('/me/dashboard')
 }
 
-export function getHistory() {
-  return apiRequest('/me/history')
-}
-
 export function getProfile() {
   return apiRequest('/me/profile')
 }
