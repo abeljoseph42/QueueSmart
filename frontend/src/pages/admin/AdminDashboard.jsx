@@ -71,6 +71,22 @@ export default function AdminDashboard() {
           <h2>Total Services</h2>
           <p>{metric(metrics?.serviceCount)}</p>
         </article>
+        {metrics?.appointmentCounts && (
+          <>
+            <article className="card admin-dashboard__metric">
+              <h2>Appointments Booked</h2>
+              <p>{metrics.appointmentCounts.booked}</p>
+            </article>
+            <article className="card admin-dashboard__metric">
+              <h2>Appointments Completed</h2>
+              <p>{metrics.appointmentCounts.completed}</p>
+            </article>
+            <article className="card admin-dashboard__metric">
+              <h2>Appointments Canceled</h2>
+              <p>{metrics.appointmentCounts.canceled}</p>
+            </article>
+          </>
+        )}
       </section>
       {metricsError && <p className="field-error admin-dashboard__error" role="alert">{metricsError.text}{metricsError.login && <> <Link to="/login">Log in</Link></>}</p>}
       <section aria-labelledby="admin-services-heading">

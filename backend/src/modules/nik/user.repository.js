@@ -35,7 +35,8 @@ function createUserRepository(db) {
     };
   }
 
-  function insert(user) {
+  // afterInsert runs in the same transaction, so anything it writes commits with the account.
+  function insert(user, afterInsert) {
     try {
       withWriteTransaction(db, () => {
         db.prepare(`
@@ -54,6 +55,8 @@ function createUserRepository(db) {
           INSERT INTO user_profile (email, full_name)
           VALUES (?, ?)
         `).run(user.email, user.name);
+
+        afterInsert?.(db);
       });
     } catch (error) {
       // SQLite's unique constraint handles competing registrations.

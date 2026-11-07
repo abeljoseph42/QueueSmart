@@ -10,6 +10,7 @@ const typeLabels = {
   'appointment.canceled': 'Appointment canceled',
   'queue.joined': 'Joined queue',
   'queue.served': 'Served',
+  'user.welcome': 'Welcome',
 }
 
 // Email delivery status, plus whether the user has opened it here.
@@ -78,7 +79,7 @@ export default function NotificationHistory() {
         <p className="eyebrow">QueueSmart</p>
         <h1>Notifications</h1>
         <p className="notification-history-intro">
-          Updates about your appointments, newest first. Times are in Central Time.
+          Updates about your account, queues and appointments, newest first. Times are in Central Time.
         </p>
       </header>
 

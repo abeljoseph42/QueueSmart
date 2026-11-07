@@ -7,6 +7,7 @@ const {
 const { promisify } = require('node:util');
 const { ApiError } = require('../../shared/errors');
 const { createUserRepository } = require('./user.repository');
+const { createNotificationService } = require('../heera/notificationService');
 
 const hashPassword = promisify(scrypt);
 
@@ -19,7 +20,7 @@ function publicUser(user) {
   };
 }
 
-function createAuthService({ store, db, now = Date.now }) {
+function createAuthService({ store, db, now = Date.now, notificationService }) {
   // The running server supplies SQLite.
   // Existing isolated tests can continue using their injected memory store.
   const users = db ? createUserRepository(db) : {
@@ -34,6 +35,9 @@ function createAuthService({ store, db, now = Date.now }) {
   };
 
   const sessionDurationMs = 60 * 60 * 1000;
+  const notifications = db
+    ? notificationService ?? createNotificationService(db)
+    : undefined;
 
   async function createAccount({ name, email, password }, role) {
     const normalizedEmail = email.trim().toLowerCase();
@@ -73,7 +77,22 @@ function createAuthService({ store, db, now = Date.now }) {
       passwordHash,
     };
 
-    users.insert(user);
+    // Only public registrations get a welcome; it commits with the account and is emailed after.
+    let welcomeId;
+
+    users.insert(user, tx => {
+      if (role !== 'user' || !notifications) return;
+
+      welcomeId = notifications.enqueueNotification(tx, {
+        userId: user.id,
+        eventKey: `user.welcome:${user.id}:${randomUUID()}`,
+        type: 'user.welcome',
+        subject: 'Welcome to QueueSmart',
+        message: `Welcome to QueueSmart, ${name}! Your account is ready.`,
+      }).notification.id;
+    });
+
+    if (welcomeId) notifications.deliverAfterCommit(welcomeId);
 
     return publicUser(user);
   }
