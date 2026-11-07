@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const express = require('express');
 const request = require('supertest');
 const { createApp } = require('../src/app');
-const { openDatabase } = require('../src/database/connection');
+const { openDatabase, withWriteTransaction } = require('../src/database/connection');
 const { runMigrations } = require('../src/database/migrate');
 const { requireAuth } = require('../src/middleware/auth');
 const { notFound, errorHandler } = require('../src/shared/errors');
@@ -18,7 +18,8 @@ const { createNotificationService } = require('../src/modules/heera/notification
 // Fixed test clock: 9:00 AM America/Chicago (CST) on 2026-11-04.
 const NOW = '2026-11-04T15:00:00.000Z';
 const at = minutes => new Date(Date.parse(NOW) + minutes * 60 * 1000).toISOString();
-const USER_FIELDS = ['createdAt', 'id', 'message', 'sentAt', 'status', 'subject', 'type', 'viewedAt'];
+const USER_FIELDS = ['createdAt', 'deliveryUnavailable', 'id', 'message', 'sentAt', 'status', 'subject', 'type',
+  'viewedAt'];
 
 let dir;
 let db;
@@ -206,6 +207,14 @@ describe('GET /api/me/notifications', () => {
   });
 });
 
+test('a notification waiting on a configured provider is not marked unavailable', async () => {
+  const { notification } = withWriteTransaction(db, tx => notifications.enqueueNotification(tx, {
+    userId: users.ana.id, eventKey: 'test:pending', type: 'appointment.booked', subject: 'S', message: 'M' }));
+  const { items } = (await as('ana', 'get', '/api/me/notifications')).body.data;
+  expect(items).toEqual([expect.objectContaining({ id: notification.id, status: 'pending',
+    deliveryUnavailable: false })]);
+});
+
 describe('POST /api/me/notifications/:id/view', () => {
   test('marks my notification viewed and hides other users\' notifications', async () => {
     await book('ana', advising().id, at(60));
@@ -281,14 +290,16 @@ describe('app wiring', () => {
       const created = await request(full).post('/api/appointments').set('x-test-user', 'ana')
         .send({ serviceId: service.id, startsAt });
       expect(created.status).toBe(201);
-      let mine;
-      for (let i = 0; i < 50; i += 1) {
-        mine = (await request(full).get('/api/me/notifications').set('x-test-user', 'ana')).body.data;
-        if (mine.items[0]?.status === 'sent') break;
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
-      expect(mine.items).toEqual([expect.objectContaining({ type: 'appointment.booked', status: 'sent' })]);
-      expect((await request(full).get('/api/admin/notifications').set('x-test-user', 'admin')).status).toBe(200);
+      // No email provider is configured, so the notification must not claim it was sent.
+      const mine = (await request(full).get('/api/me/notifications').set('x-test-user', 'ana')).body.data;
+      expect(mine.items).toEqual([expect.objectContaining({ type: 'appointment.booked', status: 'pending',
+        sentAt: null, deliveryUnavailable: true })]);
+      const all = await request(full).get('/api/admin/notifications').set('x-test-user', 'admin');
+      expect(all.body.data.items).toEqual([expect.objectContaining({ status: 'pending', attempts: 0,
+        deliveryUnavailable: true })]);
+      const viewed = await request(full).post(`/api/me/notifications/${mine.items[0].id}/view`)
+        .set('x-test-user', 'ana');
+      expect(viewed.body.data).toMatchObject({ status: 'viewed', deliveryUnavailable: false });
     } finally {
       full.locals.stopSubscribers();
     }

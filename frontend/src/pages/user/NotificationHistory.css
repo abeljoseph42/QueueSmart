@@ -95,6 +95,11 @@
   color: var(--color-error);
 }
 
+.notification-history-status.is-unavailable {
+  background: #f0f2f6;
+  color: var(--color-muted);
+}
+
 .notification-history-view {
   justify-self: start;
   padding: 0.35rem 0.8rem;

@@ -46,9 +46,6 @@ const toNotification = row => row && {
 const notFound = () => new ApiError(404, 'NOT_FOUND', 'Notification not found.');
 const errorText = error => String(error?.message || error || '').trim().slice(0, 500) || 'Delivery failed.';
 
-// Email delivery is not wired to a real provider yet; the default sender only simulates success.
-const simulatedSend = async () => {};
-
 // True when the connection has an open transaction. SQLite refuses BEGIN inside a transaction,
 // so this works on every Node version (db.isTransaction is missing before Node 24).
 function inTransaction(conn) {
@@ -61,7 +58,9 @@ function inTransaction(conn) {
   return false;
 }
 
-function createNotificationService(db, { send = simulatedSend, now = () => new Date() } = {}) {
+// `send` is the email provider. Without one nothing is emailed, so notifications stay pending
+// and are never reported as sent.
+function createNotificationService(db, { send, now = () => new Date() } = {}) {
   const inFlight = new Set();
   const stamp = () => now().toISOString();
 
@@ -97,7 +96,7 @@ function createNotificationService(db, { send = simulatedSend, now = () => new D
   // Claims one attempt in its own transaction, sends with no transaction open, then records the result.
   // A failed send is stored on the notification and never thrown, so the triggering action stands.
   async function deliverNotification(id) {
-    if (inFlight.has(id)) return getNotification(id);
+    if (!send || inFlight.has(id)) return getNotification(id);
     inFlight.add(id);
     try {
       const claim = withWriteTransaction(db, tx => {
@@ -194,7 +193,7 @@ function createNotificationService(db, { send = simulatedSend, now = () => new D
   const listForUser = (userId, options = {}) => page(['user_id = ?'], [userId], options);
   const listAll = (options = {}) => page([], [], options);
 
-  return { enqueueNotification, deliverNotification, deliverAfterCommit, settled, retryNotification, markViewed,
+  return { deliveryAvailable: Boolean(send), enqueueNotification, deliverNotification, deliverAfterCommit, settled, retryNotification, markViewed,
     findById, getNotification, listForUser, listAll };
 }
 
