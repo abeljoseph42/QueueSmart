@@ -227,11 +227,16 @@ describe('deliverNotification', () => {
     expect(await bad.deliverNotification(ids[1])).toMatchObject({ status: 'viewed', sentAt: null, lastError: 'bounced' });
   });
 
-  test('defaults to a simulated sender and the real clock', async () => {
+  test('with no email provider it stays pending and uses no attempt', async () => {
     const userId = addUser();
     const svc = createNotificationService(db);
+    expect(svc.deliveryAvailable).toBe(false);
+    expect(service.deliveryAvailable).toBe(true);
     const { notification } = withWriteTransaction(db, tx => svc.enqueueNotification(tx, input(userId)));
-    expect(await svc.deliverNotification(notification.id)).toMatchObject({ status: 'sent', attempts: 1 });
+    expect(notification.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(await svc.deliverNotification(notification.id)).toMatchObject({ status: 'pending', attempts: 0,
+      sentAt: null, lastError: null });
+    await expectError(() => svc.deliverNotification(randomUUID()), 404, 'NOT_FOUND');
   });
 });
 

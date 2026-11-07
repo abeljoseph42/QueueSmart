@@ -8,6 +8,8 @@ const typeLabels = {
   'appointment.booked': 'Appointment booked',
   'appointment.rescheduled': 'Appointment rescheduled',
   'appointment.canceled': 'Appointment canceled',
+  'queue.joined': 'Joined queue',
+  'queue.served': 'Served',
 }
 
 // Email delivery status, plus whether the user has opened it here.
@@ -105,8 +107,9 @@ export default function NotificationHistory() {
                     <span className="notification-history-type">
                       {typeLabels[notification.type] ?? 'Update'}
                     </span>
-                    <span className={`notification-history-status is-${notification.status}`}>
-                      {statusLabels[notification.status]}
+                    <span className={`notification-history-status is-${
+                      notification.deliveryUnavailable ? 'unavailable' : notification.status}`}>
+                      {notification.deliveryUnavailable ? 'Delivery unavailable' : statusLabels[notification.status]}
                     </span>
                     <time dateTime={notification.createdAt} className="notification-history-time">
                       {formatCentral(notification.createdAt)}

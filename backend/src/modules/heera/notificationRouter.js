@@ -18,6 +18,8 @@ const userNotification = z.object({
   createdAt: utc,
   sentAt: utc.nullable(),
   viewedAt: utc.nullable(),
+  // True while a notification is pending only because no email provider is configured.
+  deliveryUnavailable: z.boolean(),
 });
 const adminNotification = userNotification.extend({
   userId: z.string(),
@@ -33,11 +35,12 @@ const pageQuery = z.object({
 }).strict();
 const notificationParams = z.object({ notificationId: z.string().trim().min(1).max(100) });
 
-const toPage = (result, schema) => ({ ...result, items: result.items.map(item => schema.parse(item)) });
-
 function createNotificationRouter({ auth, notifications }) {
   const router = Router();
   const admin = [auth, requireRole('admin')];
+  const present = (schema, notification) => schema.parse({ ...notification,
+    deliveryUnavailable: notification.status === 'pending' && !notifications.deliveryAvailable });
+  const toPage = (result, schema) => ({ ...result, items: result.items.map(item => present(schema, item)) });
 
   // The signed-in user's notification history, newest first, 20 per page.
   router.get('/me/notifications', auth, validate(pageQuery, 'query'), (req, res) => {
@@ -47,7 +50,7 @@ function createNotificationRouter({ auth, notifications }) {
   // Another user's notification answers 404.
   router.post('/me/notifications/:notificationId/view', auth, validate(notificationParams, 'params'), (req, res) => {
     const viewed = notifications.markViewed(req.validated.params.notificationId, req.user.id);
-    res.json({ data: userNotification.parse(viewed) });
+    res.json({ data: present(userNotification, viewed) });
   });
 
   router.get('/admin/notifications', ...admin, validate(pageQuery, 'query'), (req, res) => {
@@ -58,7 +61,7 @@ function createNotificationRouter({ auth, notifications }) {
   router.post('/admin/notifications/:notificationId/retry', ...admin, validate(notificationParams, 'params'),
     async (req, res) => {
       const retried = await notifications.retryNotification(req.validated.params.notificationId);
-      res.json({ data: adminNotification.parse(retried) });
+      res.json({ data: present(adminNotification, retried) });
     });
 
   return router;
