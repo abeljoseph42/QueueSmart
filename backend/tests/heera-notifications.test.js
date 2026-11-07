@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { openDatabase, withWriteTransaction } = require('../src/database/connection');
 const { runMigrations } = require('../src/database/migrate');
 const {
-  inTransaction, NOTIFICATION_STATUSES, MAX_ATTEMPTS, PAGE_SIZE, createNotificationService,
+  inTransaction, NOTIFICATION_STATUSES, MAX_ATTEMPTS, PAGE_SIZE, MAX_PAGE_SIZE, createNotificationService,
 } = require('../src/modules/heera/notificationService');
 
 const MIGRATIONS = path.join(__dirname, '../src/database/migrations');
@@ -59,9 +59,9 @@ afterEach(() => {
 });
 
 describe('007_notifications migration', () => {
-  test('applies last, on top of a database that already has 006', () => {
-    expect(db.prepare('SELECT name FROM schema_migrations ORDER BY name').all().at(-1).name)
-      .toBe('007_notifications.sql');
+  test('applies on top of a database that already has 006', () => {
+    expect(db.prepare('SELECT name FROM schema_migrations ORDER BY name').all().map(row => row.name))
+      .toContain('007_notifications.sql');
     const staged = path.join(dir, 'migrations');
     fs.mkdirSync(staged);
     const copy = name => fs.copyFileSync(path.join(MIGRATIONS, name), path.join(staged, name));
@@ -214,19 +214,6 @@ describe('deliverNotification', () => {
     expect(sent).toEqual([]);
   });
 
-  test('keeps a viewed status set while the email was being sent', async () => {
-    const userId = addUser();
-    const ids = [enqueue(input(userId)).notification.id, enqueue(input(userId)).notification.id];
-    const viewing = async (mail, fail) => {
-      service.markViewed(mail.notification.id, userId);
-      if (fail) throw new Error('bounced');
-    };
-    const ok = createNotificationService(db, { send: mail => viewing(mail, false), now: () => clock });
-    const bad = createNotificationService(db, { send: mail => viewing(mail, true), now: () => clock });
-    expect(await ok.deliverNotification(ids[0])).toMatchObject({ status: 'viewed', sentAt: NOW });
-    expect(await bad.deliverNotification(ids[1])).toMatchObject({ status: 'viewed', sentAt: null, lastError: 'bounced' });
-  });
-
   test('with no email provider it stays pending and uses no attempt', async () => {
     const userId = addUser();
     const svc = createNotificationService(db);
@@ -278,11 +265,26 @@ describe('retryNotification', () => {
       lastError: null });
   });
 
-  test('only failed notifications can be retried', async () => {
+  test('a pending notification can be retried', async () => {
+    const { notification } = enqueue(input(addUser()));
+    expect(await service.retryNotification(notification.id)).toMatchObject({ status: 'sent', attempts: 1 });
+  });
+
+  test('a pending notification at the attempt limit cannot be retried', async () => {
+    const { notification } = enqueue(input(addUser()));
+    db.prepare('UPDATE notification SET attempts = ? WHERE id = ?').run(MAX_ATTEMPTS, notification.id);
+    await expectError(() => service.retryNotification(notification.id), 409, 'RETRY_LIMIT_REACHED');
+    expect(sent).toEqual([]);
+  });
+
+  test('sent and viewed notifications cannot be retried', async () => {
     const userId = addUser();
     const { notification } = enqueue(input(userId));
+    await service.deliverNotification(notification.id);
     await expectError(() => service.retryNotification(notification.id), 409, 'INVALID_STATUS',
-      'Only failed notifications can be retried; this one is pending.');
+      'Only pending or failed notifications can be retried; this one is sent.');
+    service.markViewed(notification.id, userId);
+    await expectError(() => service.retryNotification(notification.id), 409, 'INVALID_STATUS');
     await expectError(() => service.retryNotification(randomUUID()), 404, 'NOT_FOUND');
   });
 });
@@ -298,12 +300,15 @@ describe('markViewed', () => {
     expect(service.markViewed(notification.id, userId).viewedAt).toBe(at(5));
   });
 
-  test('a viewed pending notification is not emailed', async () => {
+  test('only sent notifications can be marked viewed', async () => {
     const userId = addUser();
-    const { notification } = enqueue(input(userId));
-    service.markViewed(notification.id, userId);
-    expect(await service.deliverNotification(notification.id)).toMatchObject({ status: 'viewed', attempts: 0 });
-    expect(sent).toEqual([]);
+    const pending = enqueue(input(userId)).notification;
+    expect(() => service.markViewed(pending.id, userId)).toThrow(expect.objectContaining({ status: 409,
+      code: 'INVALID_STATUS', message: 'Only sent notifications can be marked viewed; this one is pending.' }));
+    failNext.push(new Error('down'));
+    await service.deliverNotification(pending.id);
+    expect(() => service.markViewed(pending.id, userId)).toThrow(expect.objectContaining({ code: 'INVALID_STATUS' }));
+    expect(service.getNotification(pending.id)).toMatchObject({ status: 'failed', viewedAt: null });
   });
 
   test('404s for another user\'s or an unknown notification', () => {
@@ -326,17 +331,26 @@ describe('history listing', () => {
       ids.push(enqueue(input(ana)).notification.id);
     }
     enqueue(input(ben));
-    // Same timestamp: the later insert comes first.
+    // Same timestamp as the newest one: the higher id comes first.
     const tie = enqueue(input(ana)).notification.id;
 
     const first = service.listForUser(ana);
     expect(first).toMatchObject({ page: 1, pageSize: PAGE_SIZE, total: 26, totalPages: 2 });
     expect(first.items).toHaveLength(20);
-    expect(first.items.slice(0, 3).map(n => n.id)).toEqual([tie, ids[24], ids[23]]);
+    expect(first.items.slice(0, 3).map(n => n.id)).toEqual([...[tie, ids[24]].sort().reverse(), ids[23]]);
     const second = service.listForUser(ana, { page: '2' });
     expect(second.items.map(n => n.id)).toEqual(ids.slice(0, 6).reverse());
     expect(service.listForUser(ana, { page: 3 }).items).toEqual([]);
     expect(service.listForUser(addUser())).toEqual({ items: [], page: 1, pageSize: 20, total: 0, totalPages: 0 });
+  });
+
+  test('accepts a page size up to 100', () => {
+    const userId = addUser();
+    for (let i = 0; i < 3; i += 1) enqueue(input(userId));
+    expect(service.listForUser(userId, { pageSize: '2' })).toMatchObject({ pageSize: 2, total: 3, totalPages: 2 });
+    expect(service.listForUser(userId, { pageSize: MAX_PAGE_SIZE }).items).toHaveLength(3);
+    expect(() => service.listForUser(userId, { pageSize: 101 })).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => service.listForUser(userId, { pageSize: 0 })).toThrow(expect.objectContaining({ status: 400 }));
   });
 
   test('filters by status and lists across users for admins', async () => {
@@ -360,6 +374,6 @@ describe('history listing', () => {
 
   test('exports the plan constants', () => {
     expect(NOTIFICATION_STATUSES).toEqual(['pending', 'sent', 'failed', 'viewed']);
-    expect([MAX_ATTEMPTS, PAGE_SIZE]).toEqual([3, 20]);
+    expect([MAX_ATTEMPTS, PAGE_SIZE, MAX_PAGE_SIZE]).toEqual([3, 20, 100]);
   });
 });

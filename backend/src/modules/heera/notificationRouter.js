@@ -2,7 +2,7 @@ const { Router } = require('express');
 const { z } = require('zod');
 const { validate } = require('../../middleware/validate');
 const { requireRole } = require('../../middleware/auth');
-const { NOTIFICATION_STATUSES } = require('./notificationService');
+const { NOTIFICATION_STATUSES, MAX_PAGE_SIZE } = require('./notificationService');
 
 const utc = z.iso.datetime();
 const status = z.enum(NOTIFICATION_STATUSES);
@@ -31,6 +31,7 @@ const adminNotification = userNotification.extend({
 
 const pageQuery = z.object({
   page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).optional(),
   status: status.optional(),
 }).strict();
 const notificationParams = z.object({ notificationId: z.string().trim().min(1).max(100) });
@@ -42,7 +43,7 @@ function createNotificationRouter({ auth, notifications }) {
     deliveryUnavailable: notification.status === 'pending' && !notifications.deliveryAvailable });
   const toPage = (result, schema) => ({ ...result, items: result.items.map(item => present(schema, item)) });
 
-  // The signed-in user's notification history, newest first, 20 per page.
+  // The signed-in user's notification history, newest first, 20 per page unless pageSize is given.
   router.get('/me/notifications', auth, validate(pageQuery, 'query'), (req, res) => {
     res.json({ data: toPage(notifications.listForUser(req.user.id, req.validated.query), userNotification) });
   });
