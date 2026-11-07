@@ -16,6 +16,7 @@ const { createAppointmentRouter } = require('../src/modules/heera/appointmentRou
 const NOW = '2026-11-04T15:00:00.000Z';
 const at = minutes => new Date(Date.parse(NOW) + minutes * 60 * 1000).toISOString();
 
+let clock;
 let dir;
 let db;
 let app;
@@ -38,11 +39,12 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queuesmart-heera-api-'));
   db = openDatabase({ filename: path.join(dir, 'test.sqlite') });
   runMigrations(db);
+  clock = new Date(NOW);
   users = { ana: addUser('ana'), ben: addUser('ben'), admin: addUser('admin', 'admin') };
   services = createServiceRepository(db);
   app = express();
   app.use(express.json());
-  app.use('/api', createAppointmentRouter({ db, auth: requireAuth(resolveUser), now: () => new Date(NOW) }));
+  app.use('/api', createAppointmentRouter({ db, auth: requireAuth(resolveUser), now: () => clock }));
   app.use(notFound);
   app.use(errorHandler);
 });
@@ -128,8 +130,8 @@ describe('user appointments', () => {
     expect(canceled.body.data).toMatchObject({ id: mine.id, status: 'canceled' });
 
     const again = await as('ana', 'post', `/api/me/appointments/${mine.id}/cancel`);
-    expect(again.status).toBe(409);
-    expect(again.body.error.code).toBe('INVALID_STATUS');
+    expect(again.status).toBe(200);
+    expect(again.body.data).toEqual(canceled.body.data);
     expect((await as('ana', 'post', '/api/me/appointments/nope/cancel')).status).toBe(404);
   });
 });
@@ -212,11 +214,15 @@ describe('admin appointments', () => {
     const a = (await book('ana', { serviceId: service.id, startsAt: at(30) })).body.data;
     const b = (await book('ben', { serviceId: service.id, startsAt: at(60) })).body.data;
 
+    const early = await as('admin', 'post', `/api/admin/appointments/${a.id}/complete`);
+    expect(early.status).toBe(409);
+    expect(early.body.error.code).toBe('APPOINTMENT_NOT_ENDED');
+    const canceled = await as('admin', 'post', `/api/admin/appointments/${b.id}/cancel`);
+    expect(canceled.body.data).toMatchObject({ id: b.id, status: 'canceled' });
+    clock = new Date(at(60));
     const completed = await as('admin', 'post', `/api/admin/appointments/${a.id}/complete`);
     expect(completed.status).toBe(200);
     expect(completed.body.data).toMatchObject({ id: a.id, status: 'completed' });
-    const canceled = await as('admin', 'post', `/api/admin/appointments/${b.id}/cancel`);
-    expect(canceled.body.data).toMatchObject({ id: b.id, status: 'canceled' });
 
     expect((await as('admin', 'post', `/api/admin/appointments/${a.id}/cancel`)).body.error.code).toBe('INVALID_STATUS');
     expect((await as('admin', 'post', `/api/admin/appointments/${randomUUID()}/complete`)).status).toBe(404);

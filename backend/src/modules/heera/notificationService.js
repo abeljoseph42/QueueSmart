@@ -6,6 +6,7 @@ const { ApiError } = require('../../shared/errors');
 const NOTIFICATION_STATUSES = Object.freeze(['pending', 'sent', 'failed', 'viewed']);
 const MAX_ATTEMPTS = 3;
 const PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
 
 const enqueueInput = z.object({
   userId: z.uuid(),
@@ -17,6 +18,7 @@ const enqueueInput = z.object({
 
 const pageInput = z.object({
   page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(PAGE_SIZE),
   status: z.enum(NOTIFICATION_STATUSES).optional(),
 }).strict();
 
@@ -123,13 +125,8 @@ function createNotificationService(db, { send, now = () => new Date() } = {}) {
 
       return withWriteTransaction(db, tx => {
         const at = stamp();
-        // Keep a status the user changed meanwhile (viewed); otherwise record the outcome.
-        tx.prepare(`UPDATE notification SET
-            status = CASE WHEN status = 'pending' THEN ? ELSE status END,
-            sent_at = CASE WHEN ? THEN sent_at ELSE ? END,
-            last_error = ?, updated_at = ?
-          WHERE id = ?`)
-          .run(failure ? 'failed' : 'sent', failure ? 1 : 0, at, failure, at, id);
+        tx.prepare('UPDATE notification SET status = ?, sent_at = ?, last_error = ?, updated_at = ? WHERE id = ?')
+          .run(failure ? 'failed' : 'sent', failure ? null : at, failure, at, id);
         return getNotification(id, tx);
       });
     } finally {
@@ -151,12 +148,12 @@ function createNotificationService(db, { send, now = () => new Date() } = {}) {
     while (background.size) await Promise.all([...background]);
   }
 
-  // Admin retry: only failed notifications, and never past three attempts in total.
+  // Admin retry: pending or failed notifications, and never past three attempts in total.
   async function retryNotification(id) {
     withWriteTransaction(db, tx => {
       const current = getNotification(id, tx);
-      if (current.status !== 'failed') throw new ApiError(409, 'INVALID_STATUS',
-        `Only failed notifications can be retried; this one is ${current.status}.`);
+      if (!['pending', 'failed'].includes(current.status)) throw new ApiError(409, 'INVALID_STATUS',
+        `Only pending or failed notifications can be retried; this one is ${current.status}.`);
       if (current.attempts >= MAX_ATTEMPTS) throw new ApiError(409, 'RETRY_LIMIT_REACHED',
         `This notification has already been attempted ${MAX_ATTEMPTS} times.`);
       tx.prepare(`UPDATE notification SET status = 'pending', updated_at = ? WHERE id = ?`).run(stamp(), id);
@@ -164,32 +161,33 @@ function createNotificationService(db, { send, now = () => new Date() } = {}) {
     return deliverNotification(id);
   }
 
-  // Viewing is in-app and allowed from any status; a pending notification that is viewed is not emailed.
+  // Only a sent notification can be marked viewed; viewing it again changes nothing.
   function markViewed(id, userId) {
     return withWriteTransaction(db, tx => {
       const current = findById(id, tx);
       if (!current || current.userId !== userId) throw notFound();
-      if (current.status !== 'viewed') {
-        const at = stamp();
-        tx.prepare(`UPDATE notification SET status = 'viewed', viewed_at = ?, updated_at = ? WHERE id = ?`)
-          .run(at, at, id);
-      }
+      if (current.status === 'viewed') return current;
+      if (current.status !== 'sent') throw new ApiError(409, 'INVALID_STATUS',
+        `Only sent notifications can be marked viewed; this one is ${current.status}.`);
+      const at = stamp();
+      tx.prepare(`UPDATE notification SET status = 'viewed', viewed_at = ?, updated_at = ? WHERE id = ?`)
+        .run(at, at, id);
       return getNotification(id, tx);
     });
   }
 
   function page(where, params, options) {
-    const { page: number, status } = parse(pageInput, options);
+    const { page: number, pageSize, status } = parse(pageInput, options);
     const clauses = [...where, ...(status ? ['status = ?'] : [])];
     const values = [...params, ...(status ? [status] : [])];
     const sql = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
     const { total } = db.prepare(`SELECT count(*) AS total FROM notification${sql}`).get(...values);
-    const items = db.prepare(`SELECT * FROM notification${sql} ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`)
-      .all(...values, PAGE_SIZE, (number - 1) * PAGE_SIZE).map(toNotification);
-    return { items, page: number, pageSize: PAGE_SIZE, total, totalPages: Math.ceil(total / PAGE_SIZE) };
+    const items = db.prepare(`SELECT * FROM notification${sql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
+      .all(...values, pageSize, (number - 1) * pageSize).map(toNotification);
+    return { items, page: number, pageSize, total, totalPages: Math.ceil(total / pageSize) };
   }
 
-  // Newest first, 20 per page.
+  // Newest first, then by id. 20 per page unless pageSize asks for up to 100.
   const listForUser = (userId, options = {}) => page(['user_id = ?'], [userId], options);
   const listAll = (options = {}) => page([], [], options);
 
@@ -197,4 +195,5 @@ function createNotificationService(db, { send, now = () => new Date() } = {}) {
     findById, getNotification, listForUser, listAll };
 }
 
-module.exports = { inTransaction, NOTIFICATION_STATUSES, MAX_ATTEMPTS, PAGE_SIZE, createNotificationService };
+module.exports = { inTransaction, NOTIFICATION_STATUSES, MAX_ATTEMPTS, PAGE_SIZE, MAX_PAGE_SIZE,
+  createNotificationService };

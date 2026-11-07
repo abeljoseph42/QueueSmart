@@ -21,6 +21,7 @@ const at = minutes => new Date(Date.parse(NOW) + minutes * 60 * 1000).toISOStrin
 const USER_FIELDS = ['createdAt', 'deliveryUnavailable', 'id', 'message', 'sentAt', 'status', 'subject', 'type',
   'viewedAt'];
 
+let clock;
 let dir;
 let db;
 let app;
@@ -59,7 +60,8 @@ beforeEach(() => {
     outbox.push(mail);
     if (failures.length) throw failures.shift();
   };
-  const now = () => new Date(NOW);
+  clock = new Date(NOW);
+  const now = () => clock;
   notifications = createNotificationService(db, { send, now });
   const auth = requireAuth(resolveUser);
   app = express();
@@ -123,7 +125,11 @@ describe('appointment notifications', () => {
 
     await as('ana', 'post', `/api/me/appointments/${mine.id}/cancel`);
     await as('admin', 'post', `/api/admin/appointments/${other.id}/cancel`);
-    await as('admin', 'post', `/api/admin/appointments/${third.id}/complete`);
+    // Canceling again must not notify twice.
+    await as('ana', 'post', `/api/me/appointments/${mine.id}/cancel`);
+    clock = new Date('2026-11-05T19:00:00.000Z');
+    const completed = await as('admin', 'post', `/api/admin/appointments/${third.id}/complete`);
+    expect(completed.status).toBe(200);
     await notifications.settled();
 
     const canceled = rows().filter(row => row.type === 'appointment.canceled');
@@ -183,6 +189,7 @@ describe('GET /api/me/notifications', () => {
     const service = advising();
     const first = (await book('ana', service.id, at(60))).body.data;
     await book('ben', service.id, at(120));
+    clock = new Date(at(1));
     await as('ana', 'post', `/api/me/appointments/${first.id}/cancel`);
     await notifications.settled();
 
@@ -197,11 +204,14 @@ describe('GET /api/me/notifications', () => {
   test('pages 20 at a time and filters by status', async () => {
     const service = advising();
     for (let i = 0; i < 21; i += 1) await book('ana', service.id, at(60 * (i + 1)));
+    const sized = await as('ana', 'get', '/api/me/notifications?pageSize=5');
+    expect(sized.body.data).toMatchObject({ pageSize: 5, totalPages: 5 });
+    expect(sized.body.data.items).toHaveLength(5);
     const second = await as('ana', 'get', '/api/me/notifications?page=2');
     expect(second.body.data).toMatchObject({ page: 2, total: 21, totalPages: 2 });
     expect(second.body.data.items).toHaveLength(1);
     expect((await as('ana', 'get', '/api/me/notifications?status=failed')).body.data.total).toBe(0);
-    for (const query of ['page=0', 'status=queued', 'size=5']) {
+    for (const query of ['page=0', 'status=queued', 'size=5', 'pageSize=101']) {
       expect((await as('ana', 'get', `/api/me/notifications?${query}`)).status).toBe(400);
     }
   });
@@ -281,6 +291,27 @@ describe('admin notification routes', () => {
   });
 });
 
+test('booked appointments, sent notifications and viewed status survive a backend restart', async () => {
+  const service = advising();
+  const booked = (await book('ana', service.id, at(60))).body.data;
+  const [{ id }] = (await as('ana', 'get', '/api/me/notifications')).body.data.items;
+  await as('ana', 'post', `/api/me/notifications/${id}/view`);
+
+  db.close();
+  db = openDatabase({ filename: path.join(dir, 'test.sqlite') });
+  expect(runMigrations(db)).toEqual([]);
+  const restarted = createApp({ db, resolveUser });
+  try {
+    const appointments = await request(restarted).get('/api/me/appointments').set('x-test-user', 'ana');
+    expect(appointments.body.data).toEqual([booked]);
+    const history = await request(restarted).get('/api/me/notifications').set('x-test-user', 'ana');
+    expect(history.body.data.items).toEqual([expect.objectContaining({ id, status: 'viewed', viewedAt: NOW,
+      sentAt: NOW, type: 'appointment.booked' })]);
+  } finally {
+    restarted.locals.stopSubscribers();
+  }
+});
+
 describe('app wiring', () => {
   test('createApp books, notifies and lists through one notification service', async () => {
     const full = createApp({ db, resolveUser });
@@ -299,7 +330,8 @@ describe('app wiring', () => {
         deliveryUnavailable: true })]);
       const viewed = await request(full).post(`/api/me/notifications/${mine.items[0].id}/view`)
         .set('x-test-user', 'ana');
-      expect(viewed.body.data).toMatchObject({ status: 'viewed', deliveryUnavailable: false });
+      expect(viewed.status).toBe(409);
+      expect(viewed.body.error.code).toBe('INVALID_STATUS');
     } finally {
       full.locals.stopSubscribers();
     }

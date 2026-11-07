@@ -105,20 +105,56 @@ describe('006_appointments migration', () => {
     const service = addService();
     const insert = (overrides = {}) => {
       const row = { id: randomUUID(), user_id: userId, service_id: service.id, starts_at: at(60),
-        ends_at: at(90), status: 'booked', created_at: NOW, updated_at: NOW, ...overrides };
-      db.prepare(`INSERT INTO appointment (id, user_id, service_id, starts_at, ends_at, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(...Object.values(row));
+        ends_at: at(90), duration_minutes: 30, status: 'booked', created_at: NOW, updated_at: NOW, ...overrides };
+      db.prepare(`INSERT INTO appointment
+        (id, user_id, service_id, starts_at, ends_at, duration_minutes, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...Object.values(row));
       return row;
     };
     expect(() => insert({ status: 'pending' })).toThrow(/CHECK/);
     expect(() => insert({ starts_at: '2026-11-04 16:00:00' })).toThrow(/CHECK/);
     expect(() => insert({ ends_at: at(60) })).toThrow(/CHECK/);
+    expect(() => insert({ duration_minutes: 0 })).toThrow(/CHECK/);
+    expect(() => insert({ duration_minutes: 481 })).toThrow(/CHECK/);
     expect(() => insert({ user_id: randomUUID() })).toThrow(/FOREIGN KEY/);
     expect(() => insert({ service_id: randomUUID() })).toThrow(/FOREIGN KEY/);
     const first = insert();
     expect(() => insert({ user_id: addUser() })).toThrow(/UNIQUE/);
     db.prepare("UPDATE appointment SET status = 'canceled' WHERE id = ?").run(first.id);
     expect(() => insert({ user_id: addUser() })).not.toThrow();
+  });
+});
+
+describe('008_appointment_duration migration', () => {
+  test('keeps existing appointments and fills in their duration', () => {
+    const staged = path.join(dir, 'staged');
+    fs.mkdirSync(staged);
+    const copy = name => fs.copyFileSync(path.join(MIGRATIONS, name), path.join(staged, name));
+    fs.readdirSync(MIGRATIONS).filter(name => name.endsWith('.sql') && name < '008').forEach(copy);
+    const old = openDatabase({ filename: path.join(dir, 'before-008.sqlite') });
+    try {
+      runMigrations(old, staged);
+      const service = createServiceRepository(old).create({ name: 'Advising', expectedDurationMinutes: 45 });
+      const userId = randomUUID();
+      const id = randomUUID();
+      old.prepare('INSERT INTO user_credentials (id, email, password_hash) VALUES (?, ?, ?)')
+        .run(userId, 'old@example.com', 'x');
+      old.prepare(`INSERT INTO appointment (id, user_id, service_id, starts_at, ends_at, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'canceled', ?, ?)`).run(id, userId, service.id, at(60), at(105), NOW, NOW);
+
+      copy('008_appointment_duration.sql');
+      expect(runMigrations(old, staged)).toEqual(['008_appointment_duration.sql']);
+      expect({ ...old.prepare('SELECT * FROM appointment').get() }).toEqual({ id, user_id: userId,
+        service_id: service.id, starts_at: at(60), ends_at: at(105), duration_minutes: 45, status: 'canceled',
+        created_at: NOW, updated_at: NOW });
+      const indexes = old.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'appointment'")
+        .all().map(row => row.name);
+      expect(indexes).toEqual(expect.arrayContaining(['idx_appointment_service_slot',
+        'idx_appointment_service_status_times', 'idx_appointment_user_status_times']));
+      expect(old.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {
+      old.close();
+    }
   });
 });
 
@@ -130,7 +166,7 @@ describe('create', () => {
     const appointment = repo.create({ userId, serviceId: service.id, startsAt: '2026-11-05T10:00:00-06:00' });
     expect(appointment).toEqual({
       id: expect.any(String), userId, serviceId: service.id,
-      startsAt: '2026-11-05T16:00:00.000Z', endsAt: '2026-11-05T16:45:00.000Z',
+      startsAt: '2026-11-05T16:00:00.000Z', endsAt: '2026-11-05T16:45:00.000Z', durationMinutes: 45,
       status: 'booked', createdAt: NOW, updatedAt: NOW,
     });
     expect(appointment.id).toHaveLength(36);
@@ -231,7 +267,9 @@ describe('create', () => {
     const first = repo.create({ userId, serviceId: service.id, startsAt: at(60) });
     repo.cancel(first.id);
     const second = repo.create({ userId, serviceId: service.id, startsAt: at(60) });
+    clock = new Date(at(90));
     repo.complete(second.id);
+    clock = new Date(at(45));
     expectError(() => repo.create({ userId: addUser(), serviceId: service.id, startsAt: at(60) }),
       409, 'SLOT_CONFLICT');
   });
@@ -257,7 +295,7 @@ describe('reschedule', () => {
     services.update(service.id, { expectedDurationMinutes: 45 });
     clock = new Date(at(5));
     const moved = repo.reschedule(booked.id, { startsAt: at(240) });
-    expect(moved).toEqual({ ...booked, startsAt: at(240), endsAt: at(285), updatedAt: at(5) });
+    expect(moved).toEqual({ ...booked, startsAt: at(240), endsAt: at(285), durationMinutes: 45, updatedAt: at(5) });
   });
 
   test('may overlap its own old time, and frees the old slot', () => {
@@ -304,12 +342,22 @@ describe('reschedule', () => {
     const completed = repo.create({ userId, serviceId: service.id, startsAt: at(120) });
     const active = repo.create({ userId, serviceId: service.id, startsAt: at(180) });
     repo.cancel(canceled.id);
+    clock = new Date(at(150));
     repo.complete(completed.id);
+    clock = new Date(NOW);
     expectError(() => repo.reschedule(canceled.id, { startsAt: at(400) }), 409, 'INVALID_STATUS',
       'Only booked appointments can be rescheduled; this one is canceled.');
     expectError(() => repo.reschedule(completed.id, { startsAt: at(400) }), 409, 'INVALID_STATUS');
     services.update(service.id, { isActive: false });
     expectError(() => repo.reschedule(active.id, { startsAt: at(400) }), 409, 'SERVICE_INACTIVE');
+  });
+
+  test('an appointment that has started cannot move', () => {
+    const booked = repo.create({ userId: addUser(), serviceId: addService().id, startsAt: at(60) });
+    clock = new Date(at(60));
+    expectError(() => repo.reschedule(booked.id, { startsAt: at(120) }), 409, 'INVALID_STATUS',
+      'Only future appointments can be rescheduled.');
+    expect(repo.getAppointment(booked.id).startsAt).toBe(at(60));
   });
 
   test("a user cannot move someone else's appointment, and unknown ids 404", () => {
@@ -336,6 +384,19 @@ describe('reschedule', () => {
     const atTarget = repo.listByService(service.id).filter(a => a.startsAt === target && a.status === 'booked');
     expect(atTarget).toEqual([outcomes.find(outcome => outcome.ok).appointment]);
   }, 20000);
+});
+
+test('appointments survive closing and reopening the database file', () => {
+  const userId = addUser();
+  const booked = repo.create({ userId, serviceId: addService().id, startsAt: at(60) });
+  const canceled = repo.cancel(repo.create({ userId, serviceId: addService().id, startsAt: at(120) }).id);
+  db.close();
+  db = openDatabase({ filename: file });
+  expect(runMigrations(db)).toEqual([]);
+  const reopened = createAppointmentRepository(db, { now: () => clock });
+  expect(reopened.listByUser(userId)).toEqual([booked, canceled]);
+  expectError(() => reopened.create({ userId: addUser(), serviceId: booked.serviceId, startsAt: at(60) }),
+    409, 'SLOT_CONFLICT');
 });
 
 describe('reads', () => {
@@ -375,20 +436,59 @@ describe('status changes', () => {
     const second = repo.create({ userId, serviceId: addService().id, startsAt: at(120) });
     clock = new Date(at(5));
     expect(repo.cancel(first.id, { userId })).toEqual({ ...first, status: 'canceled', updatedAt: at(5) });
-    expect(repo.complete(second.id)).toEqual({ ...second, status: 'completed', updatedAt: at(5) });
+    clock = new Date(at(150));
+    expect(repo.complete(second.id)).toEqual({ ...second, status: 'completed', updatedAt: at(150) });
   });
 
-  test('only booked appointments can change status', () => {
+  test('canceling a canceled appointment succeeds and changes nothing', () => {
     const userId = addUser();
-    const canceled = repo.create({ userId, serviceId: addService().id, startsAt: at(60) });
+    const booked = repo.create({ userId, serviceId: addService().id, startsAt: at(60) });
+    clock = new Date(at(5));
+    const canceled = repo.cancel(booked.id, { userId });
+    clock = new Date(at(500));
+    expect(repo.cancel(booked.id, { userId })).toEqual(canceled);
+    expectError(() => repo.cancel(booked.id, { userId: addUser() }), 404, 'NOT_FOUND');
+  });
+
+  test('only future booked appointments can be canceled', () => {
+    const userId = addUser();
+    const started = repo.create({ userId, serviceId: addService().id, startsAt: at(60) });
     const completed = repo.create({ userId, serviceId: addService().id, startsAt: at(120) });
-    repo.cancel(canceled.id);
+    clock = new Date(at(60));
+    expectError(() => repo.cancel(started.id, { userId }), 409, 'INVALID_STATUS',
+      'Only future appointments can be canceled.');
+    expectError(() => repo.cancel(started.id), 409, 'INVALID_STATUS');
+    clock = new Date(at(150));
     repo.complete(completed.id);
-    expectError(() => repo.cancel(canceled.id), 409, 'INVALID_STATUS',
-      'Only booked appointments can be canceled; this one is canceled.');
-    expectError(() => repo.complete(canceled.id), 409, 'INVALID_STATUS');
-    expectError(() => repo.cancel(completed.id), 409, 'INVALID_STATUS');
+    expectError(() => repo.cancel(completed.id), 409, 'INVALID_STATUS',
+      'Only booked appointments can be canceled; this one is completed.');
     expect(repo.getAppointment(completed.id).status).toBe('completed');
+  });
+
+  test('completing requires a booked appointment whose end has passed', () => {
+    const userId = addUser();
+    const booked = repo.create({ userId, serviceId: addService().id, startsAt: at(60) });
+    const canceled = repo.create({ userId, serviceId: addService().id, startsAt: at(120) });
+    repo.cancel(canceled.id);
+    clock = new Date(at(89));
+    expectError(() => repo.complete(booked.id), 409, 'APPOINTMENT_NOT_ENDED',
+      'An appointment can only be completed after it ends.');
+    clock = new Date(at(90));
+    expect(repo.complete(booked.id).status).toBe('completed');
+    expectError(() => repo.complete(booked.id), 409, 'INVALID_STATUS');
+    expectError(() => repo.complete(canceled.id), 409, 'INVALID_STATUS',
+      'Only booked appointments can be completed; this one is canceled.');
+  });
+
+  test('counts appointments by status', () => {
+    expect(repo.countByStatus()).toEqual({ booked: 0, canceled: 0, completed: 0 });
+    const userId = addUser();
+    const [a, b] = [at(60), at(120)].map(startsAt => repo.create({ userId, serviceId: addService().id, startsAt }));
+    repo.create({ userId, serviceId: addService().id, startsAt: at(300) });
+    repo.cancel(a.id);
+    clock = new Date(at(150));
+    repo.complete(b.id);
+    expect(repo.countByStatus()).toEqual({ booked: 1, canceled: 1, completed: 1 });
   });
 
   test("a user cannot cancel someone else's appointment, and unknown ids 404", () => {

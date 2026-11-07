@@ -100,7 +100,7 @@ export default function NotificationHistory() {
         ) : (
           <ul className="notification-history-list">
             {items.map(notification => {
-              const isNew = notification.status !== 'viewed'
+              const isNew = notification.status === 'sent'
               return (
                 <li key={notification.id} className={`notification-history-item${isNew ? ' is-new' : ''}`}>
                   <div className="notification-history-meta">

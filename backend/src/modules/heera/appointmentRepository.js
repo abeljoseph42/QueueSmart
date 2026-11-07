@@ -36,6 +36,7 @@ const toAppointment = row => row && {
   serviceId: row.service_id,
   startsAt: row.starts_at,
   endsAt: row.ends_at,
+  durationMinutes: row.duration_minutes,
   status: row.status,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -109,7 +110,16 @@ function createAppointmentRepository(db, { now = () => new Date(), notifications
   const slot = (start, service) => ({
     startsAt: new Date(start).toISOString(),
     endsAt: new Date(start + service.expectedDurationMinutes * 60 * 1000).toISOString(),
+    durationMinutes: service.expectedDurationMinutes,
   });
+
+  // Users and admins can only change booked appointments that have not started yet.
+  function assertChangeable(appointment, action, current) {
+    if (appointment.status !== 'booked') throw new ApiError(409, 'INVALID_STATUS',
+      `Only booked appointments can be ${action}; this one is ${appointment.status}.`);
+    if (appointment.startsAt <= current.toISOString()) throw new ApiError(409, 'INVALID_STATUS',
+      `Only future appointments can be ${action}.`);
+  }
 
   function create(input) {
     const data = parse(createInput, input);
@@ -122,15 +132,15 @@ function createAppointmentRepository(db, { now = () => new Date(), notifications
         throw new ApiError(404, 'NOT_FOUND', 'User not found.');
       }
       const service = bookableService(tx, data.serviceId);
-      const { startsAt, endsAt } = slot(start, service);
+      const { startsAt, endsAt, durationMinutes } = slot(start, service);
       assertSlotFree(tx, { serviceId: data.serviceId, userId: data.userId, startsAt, endsAt });
 
       const id = randomUUID();
       const stamp = current.toISOString();
       tx.prepare(`INSERT INTO appointment
-        (id, user_id, service_id, starts_at, ends_at, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'booked', ?, ?)`)
-        .run(id, data.userId, data.serviceId, startsAt, endsAt, stamp, stamp);
+        (id, user_id, service_id, starts_at, ends_at, duration_minutes, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'booked', ?, ?)`)
+        .run(id, data.userId, data.serviceId, startsAt, endsAt, durationMinutes, stamp, stamp);
       notify(tx, { userId: data.userId, eventKey: `appointment.booked:${id}`, type: 'appointment.booked',
         subject: `Appointment booked: ${service.name}`,
         message: `Your ${service.name} appointment is booked for ${when(startsAt)}.` });
@@ -152,25 +162,46 @@ function createAppointmentRepository(db, { now = () => new Date(), notifications
       .all(...[serviceId, status].filter(Boolean)).map(toAppointment);
   }
 
-  // Only booked appointments can move, and only to canceled or completed.
+  // Canceling a canceled appointment changes nothing and sends nothing.
   // Passing userId scopes the change to that user's own appointment.
-  function transition(id, next, { userId } = {}) {
+  function cancel(id, { userId } = {}) {
     return writeAndNotify((tx, notify) => {
       const appointment = findById(id, tx);
       if (!appointment || (userId !== undefined && appointment.userId !== userId)) throw notFound();
-      if (appointment.status !== 'booked') throw new ApiError(409, 'INVALID_STATUS',
-        `Only booked appointments can be ${next}; this one is ${appointment.status}.`);
-      tx.prepare('UPDATE appointment SET status = ?, updated_at = ? WHERE id = ?')
-        .run(next, now().toISOString(), id);
-      if (next === 'canceled') {
-        const { name } = createServiceRepository(tx).getService(appointment.serviceId);
-        const by = userId === undefined ? ' by staff' : '';
-        notify(tx, { userId: appointment.userId, eventKey: `appointment.canceled:${id}`, type: 'appointment.canceled',
-          subject: `Appointment canceled: ${name}`,
-          message: `Your ${name} appointment for ${when(appointment.startsAt)} was canceled${by}.` });
-      }
+      if (appointment.status === 'canceled') return appointment;
+      const current = now();
+      assertChangeable(appointment, 'canceled', current);
+      tx.prepare("UPDATE appointment SET status = 'canceled', updated_at = ? WHERE id = ?")
+        .run(current.toISOString(), id);
+      const { name } = createServiceRepository(tx).getService(appointment.serviceId);
+      const by = userId === undefined ? ' by staff' : '';
+      notify(tx, { userId: appointment.userId, eventKey: `appointment.canceled:${id}`, type: 'appointment.canceled',
+        subject: `Appointment canceled: ${name}`,
+        message: `Your ${name} appointment for ${when(appointment.startsAt)} was canceled${by}.` });
       return getAppointment(id, tx);
     });
+  }
+
+  // Admin only: a booked appointment can be completed once its end time has passed.
+  function complete(id) {
+    return withWriteTransaction(db, tx => {
+      const appointment = getAppointment(id, tx);
+      if (appointment.status !== 'booked') throw new ApiError(409, 'INVALID_STATUS',
+        `Only booked appointments can be completed; this one is ${appointment.status}.`);
+      const stamp = now().toISOString();
+      if (appointment.endsAt > stamp) throw new ApiError(409, 'APPOINTMENT_NOT_ENDED',
+        'An appointment can only be completed after it ends.');
+      tx.prepare("UPDATE appointment SET status = 'completed', updated_at = ? WHERE id = ?").run(stamp, id);
+      return getAppointment(id, tx);
+    });
+  }
+
+  // Appointment counts for the admin statistics.
+  function countByStatus(conn = db) {
+    const counts = Object.fromEntries(APPOINTMENT_STATUSES.map(status => [status, 0]));
+    conn.prepare('SELECT status, count(*) AS total FROM appointment GROUP BY status').all()
+      .forEach(row => { counts[row.status] = row.total; });
+    return counts;
   }
 
   // Moves a booked appointment to a new start, under the same rules as booking. The length is
@@ -184,17 +215,16 @@ function createAppointmentRepository(db, { now = () => new Date(), notifications
     return writeAndNotify((tx, notify) => {
       const appointment = findById(id, tx);
       if (!appointment || (userId !== undefined && appointment.userId !== userId)) throw notFound();
-      if (appointment.status !== 'booked') throw new ApiError(409, 'INVALID_STATUS',
-        `Only booked appointments can be rescheduled; this one is ${appointment.status}.`);
+      assertChangeable(appointment, 'rescheduled', current);
       const service = bookableService(tx, appointment.serviceId);
-      const { startsAt, endsAt } = slot(start, service);
+      const { startsAt, endsAt, durationMinutes } = slot(start, service);
       if (startsAt === appointment.startsAt) throw new ApiError(400, 'VALIDATION_ERROR', 'Request validation failed.',
         [{ path: 'startsAt', message: 'New time must differ from the current time.' }]);
       assertSlotFree(tx, { serviceId: appointment.serviceId, userId: appointment.userId, startsAt, endsAt,
         ignoreId: id });
 
-      tx.prepare('UPDATE appointment SET starts_at = ?, ends_at = ?, updated_at = ? WHERE id = ?')
-        .run(startsAt, endsAt, current.toISOString(), id);
+      tx.prepare('UPDATE appointment SET starts_at = ?, ends_at = ?, duration_minutes = ?, updated_at = ? WHERE id = ?')
+        .run(startsAt, endsAt, durationMinutes, current.toISOString(), id);
       const by = userId === undefined ? ' by staff' : '';
       notify(tx, { userId: appointment.userId, eventKey: `appointment.rescheduled:${id}:${randomUUID()}`,
         type: 'appointment.rescheduled', subject: `Appointment rescheduled: ${service.name}`,
@@ -203,10 +233,8 @@ function createAppointmentRepository(db, { now = () => new Date(), notifications
     });
   }
 
-  const cancel = (id, options) => transition(id, 'canceled', options);
-  const complete = id => transition(id, 'completed');
-
-  return { create, findById, getAppointment, listByUser, listByService, reschedule, cancel, complete };
+  return { create, findById, getAppointment, listByUser, listByService, reschedule, cancel, complete,
+    countByStatus };
 }
 
 module.exports = { APPOINTMENT_STATUSES, MAX_DAYS_AHEAD, createAppointmentRepository };
