@@ -10,6 +10,13 @@ const { createNotificationService } = require('../heera/notificationService');
 
 const entryUpdate = z.union([c.reorder, z.object({ priority: c.priority }).strict()]);
 
+const historyQuery = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  outcome: z.enum(['served', 'canceled']).optional(),
+}).strict();
+const adminHistoryQuery = historyQuery.extend({ userId: z.string().trim().min(1).max(100).optional() }).strict();
+
 module.exports = function createBryanRouter({ auth, store, events, db, notificationService }) {
   const router = Router();
   const notifications = db ? notificationService ?? createNotificationService(db) : undefined;
@@ -38,6 +45,12 @@ module.exports = function createBryanRouter({ auth, store, events, db, notificat
 
   if (entries) {
     const admin = [auth, requireRole('admin')];
+    router.get('/me/queue-history', auth, validate(historyQuery, 'query'), (req, res) => {
+      res.json({ data: entries.listMyQueueHistory(req.user, req.validated.query) });
+    });
+    router.get('/admin/queue-history', ...admin, validate(adminHistoryQuery, 'query'), (req, res) => {
+      res.json({ data: entries.listQueueHistory(req.user, req.validated.query) });
+    });
     const params = validate(c.serviceParams, 'params');
     const entryParams = validate(c.entryParams, 'params');
     router.get('/admin/services/:serviceId/queue', ...admin, params, (req, res) => {

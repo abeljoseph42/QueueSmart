@@ -52,8 +52,8 @@ export default function QueueManagement() {
     ({ entry }) => `${entry.userId} has been served.`)
   const removeEntry = (entry) => run(() => apiRequest(entryPath(entry.id), { method: 'DELETE' }),
     () => `${entry.userId} has been removed from the queue.`)
-  const moveEntry = (entry, position) => run(() => apiRequest(entryPath(entry.id), { method: 'PATCH', body: { position } }),
-    () => `${entry.userId} moved to position ${position}.`)
+  const changePriority = (entry, priority) => run(() => apiRequest(entryPath(entry.id), { method: 'PATCH', body: { priority } }),
+    () => `${entry.userId} priority set to ${priority}.`)
 
   if (loading) {
     return <section className="card queue-management" aria-busy="true"><p>Loading queue…</p></section>
@@ -95,6 +95,7 @@ export default function QueueManagement() {
               <tr>
                 <th scope="col">Position</th>
                 <th scope="col">User</th>
+                <th scope="col">Priority</th>
                 <th scope="col">Estimated Wait</th>
                 <th scope="col">Actions</th>
               </tr>
@@ -104,18 +105,23 @@ export default function QueueManagement() {
                 <tr key={entry.id}>
                   <td>{position}</td>
                   <th scope="row">{entry.userId}</th>
+                  <td>
+                    <select value={entry.priority} onChange={(event) => changePriority(entry, event.target.value)} disabled={busy} aria-label={`Priority for ${entry.userId}`}>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </td>
                   <td>{estimatedWaitMinutes} minutes</td>
                   <td>
                     <div className="queue-management__actions">
-                      <button type="button" className="button-secondary" onClick={() => moveEntry(entry, position - 1)} disabled={busy || position === 1} aria-label={`Move ${entry.userId} up`}>Move Up</button>
-                      <button type="button" className="button-secondary" onClick={() => moveEntry(entry, position + 1)} disabled={busy || position === queue.length} aria-label={`Move ${entry.userId} down`}>Move Down</button>
                       <button type="button" className="button-secondary" onClick={() => removeEntry(entry)} disabled={busy} aria-label={`Remove ${entry.userId}`}>Remove</button>
                     </div>
                   </td>
                 </tr>
               ))}
               {queue.length === 0 && (
-                <tr><td colSpan={4} className="queue-management__empty">No one is waiting in this queue.</td></tr>
+                <tr><td colSpan={5} className="queue-management__empty">No one is waiting in this queue.</td></tr>
               )}
             </tbody>
           </table>

@@ -105,10 +105,36 @@ function createQueueEntryRepository(db, { now = () => new Date() } = {}) {
     `).all(userId, clampLimit(limit), Math.max(0, Number.isInteger(offset) ? offset : 0)).map(toEntry);
   }
 
-    return {
+  function pageHistory({ userId, status, limit, page = 1 } = {}, conn = db) {
+    const size = clampLimit(limit);
+    const number = Number.isInteger(page) && page > 0 ? page : 1;
+    const clauses = ["e.status IN ('served', 'canceled')"];
+    const values = [];
+    if (userId) {
+      clauses.push('e.user_id = ?');
+      values.push(userId);
+    }
+    if (TERMINAL_STATUSES.includes(status)) {
+      clauses.push('e.status = ?');
+      values.push(status);
+    }
+    const where = `WHERE ${clauses.join(' AND ')}`;
+    const { total } = conn.prepare(`SELECT count(*) AS total FROM queue_entry e ${where}`).get(...values);
+    const items = conn.prepare(`
+      SELECT e.*, s.id AS service_id, s.name AS service_name
+      FROM queue_entry e JOIN queue q ON q.id = e.queue_id JOIN service s ON s.id = q.service_id
+      ${where}
+      ORDER BY e.finished_at DESC, e.id DESC
+      LIMIT ? OFFSET ?
+    `).all(...values, size, (number - 1) * size)
+      .map(row => ({ ...toEntry(row), serviceId: row.service_id, serviceName: row.service_name }));
+    return { items, page: number, pageSize: size, total, totalPages: Math.ceil(total / size) };
+  }
+
+  return {
     findById, findWaiting, listWaiting, recalculatePositions, insertWaiting, finishEntry, updatePriority,
-    countByStatus, listHistory,
-    };
+    countByStatus, listHistory, pageHistory,
+  };
 }
 
 module.exports = {

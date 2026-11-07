@@ -28,6 +28,13 @@ export async function getMyQueues(services) {
   return queues
 }
 
+export function getMyQueueHistory({ page = 1, pageSize, outcome } = {}) {
+  const params = new URLSearchParams({ page: String(page) })
+  if (pageSize) params.set('pageSize', String(pageSize))
+  if (outcome) params.set('outcome', outcome)
+  return apiRequest(`/me/queue-history?${params}`)
+}
+
 export function statusLabel(position) {
   return position <= 2 ? 'Almost Ready' : 'Waiting'
 }
