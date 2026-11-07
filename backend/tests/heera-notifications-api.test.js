@@ -14,6 +14,8 @@ const { createAppointmentRepository } = require('../src/modules/heera/appointmen
 const { createAppointmentRouter } = require('../src/modules/heera/appointmentRouter');
 const { createNotificationRouter } = require('../src/modules/heera/notificationRouter');
 const { createNotificationService } = require('../src/modules/heera/notificationService');
+const { createAuthService } = require('../src/modules/nik/auth.service');
+const { createStore } = require('../src/shared/store');
 
 // Fixed test clock: 9:00 AM America/Chicago (CST) on 2026-11-04.
 const NOW = '2026-11-04T15:00:00.000Z';
@@ -309,6 +311,75 @@ test('booked appointments, sent notifications and viewed status survive a backen
       sentAt: NOW, type: 'appointment.booked' })]);
   } finally {
     restarted.locals.stopSubscribers();
+  }
+});
+
+describe('welcome notification', () => {
+  const register = (app, email) => request(app).post('/api/auth/register')
+    .send({ name: 'Cy Lee', email, password: 'password123' });
+  const welcomes = () => db.prepare("SELECT * FROM notification WHERE type = 'user.welcome'").all();
+
+  test('registering stores one welcome with the new account, and it shows in history', async () => {
+    const full = createApp({ db });
+    try {
+      const { body } = await register(full, 'cy@example.com');
+      expect(welcomes()).toEqual([expect.objectContaining({ user_id: body.data.user.id, status: 'pending',
+        subject: 'Welcome to QueueSmart', message: 'Welcome to QueueSmart, Cy Lee! Your account is ready.',
+        event_key: expect.stringMatching(new RegExp(`^user\\.welcome:${body.data.user.id}:`)) })]);
+      const history = await request(full).get('/api/me/notifications')
+        .set('Authorization', `Bearer ${body.data.token}`);
+      expect(history.body.data.items).toEqual([expect.objectContaining({ type: 'user.welcome',
+        deliveryUnavailable: true })]);
+    } finally {
+      full.locals.stopSubscribers();
+    }
+  });
+
+  test('a duplicate registration leaves no second account or welcome', async () => {
+    const full = createApp({ db });
+    try {
+      await register(full, 'cy@example.com');
+      expect((await register(full, 'CY@example.com')).status).toBe(409);
+      expect(welcomes()).toHaveLength(1);
+    } finally {
+      full.locals.stopSubscribers();
+    }
+  });
+
+  test('the welcome is emailed through the given service after the account commits', async () => {
+    const auth = createAuthService({ store: createStore(), db, notificationService: notifications });
+    const user = await auth.register({ name: 'Cy Lee', email: 'cy@example.com', password: 'password123' });
+    await notifications.settled();
+    expect(outbox).toEqual([expect.objectContaining({ to: 'cy@example.com', subject: 'Welcome to QueueSmart' })]);
+    expect(welcomes()).toEqual([expect.objectContaining({ user_id: user.id, status: 'sent' })]);
+  });
+
+  test('a failure saving the welcome also cancels the account', async () => {
+    const broken = { enqueueNotification: () => { throw new Error('disk full'); }, deliverAfterCommit: jest.fn() };
+    const auth = createAuthService({ store: createStore(), db, notificationService: broken });
+    await expect(auth.register({ name: 'Cy Lee', email: 'cy@example.com', password: 'password123' }))
+      .rejects.toThrow('disk full');
+    expect(db.prepare("SELECT count(*) AS n FROM user_credentials WHERE email = 'cy@example.com'").get().n).toBe(0);
+    expect(broken.deliverAfterCommit).not.toHaveBeenCalled();
+  });
+
+  test('the bootstrap administrator gets no welcome', async () => {
+    const auth = createAuthService({ store: createStore(), db, notificationService: notifications });
+    await auth.registerAdmin({ name: 'Ad Min', email: 'boss@example.com', password: 'password123' });
+    expect(welcomes()).toEqual([]);
+  });
+});
+
+test('the admin dashboard reports appointment counts by status', async () => {
+  const full = createApp({ db, resolveUser });
+  try {
+    const service = advising();
+    const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await request(full).post('/api/appointments').set('x-test-user', 'ana').send({ serviceId: service.id, startsAt });
+    const dashboard = await request(full).get('/api/admin/dashboard').set('x-test-user', 'admin');
+    expect(dashboard.body.data.appointmentCounts).toEqual({ booked: 1, canceled: 0, completed: 0 });
+  } finally {
+    full.locals.stopSubscribers();
   }
 });
 

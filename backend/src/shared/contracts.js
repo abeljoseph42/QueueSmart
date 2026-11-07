@@ -41,7 +41,8 @@ const userDashboard = z.object({ services: z.array(service), queues: z.array(que
   notifications: z.array(notification) });
 const count = z.number().int().min(0);
 const adminDashboard = z.object({ serviceCount: count, waitingCount: count, openServiceCount: count,
-  activeServiceCount: count.optional(), openQueueCount: count.optional(), closedQueueCount: count.optional() });
+  activeServiceCount: count.optional(), openQueueCount: count.optional(), closedQueueCount: count.optional(),
+  appointmentCounts: z.object({ booked: count, canceled: count, completed: count }).optional() });
 /** @typedef {import('zod').infer<typeof user>} User */
 /** @typedef {import('zod').infer<typeof service>} Service */
 /** @typedef {import('zod').infer<typeof queueEntry>} QueueEntry */
