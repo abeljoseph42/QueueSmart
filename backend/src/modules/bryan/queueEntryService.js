@@ -177,6 +177,35 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
 
   const getEntryStats = () => entries.countByStatus();
 
+  function toHistoryItem(entry) {
+    return {
+      id: entry.id,
+      entryId: entry.id,
+      userId: entry.userId,
+      serviceId: entry.serviceId,
+      serviceName: entry.serviceName,
+      priority: LEVEL_TO_PRIORITY[entry.priorityLevel],
+      joinedAt: entry.joinedAt,
+      endedAt: entry.finishedAt,
+      outcome: entry.status,
+    };
+  }
+
+  function historyPage({ userId, outcome, page, pageSize }) {
+    const result = entries.pageHistory({ userId, status: outcome, page, limit: pageSize });
+    return { ...result, items: result.items.map(toHistoryItem) };
+  }
+
+  function listMyQueueHistory(actor, options = {}) {
+    if (!actor?.id) throw new ApiError(401, 'UNAUTHENTICATED', 'Authentication required.');
+    return historyPage({ ...options, userId: actor.id });
+  }
+
+  function listQueueHistory(admin, options = {}) {
+    requireAdmin(admin);
+    return historyPage(options);
+  }
+
   function joinByService(actor, serviceId) {
     const { service, queue } = queueForService(serviceId);
     return toA3Status(joinQueue(actor, queue.id), service);
@@ -228,7 +257,7 @@ function createQueueEntryService({ db, store, events, notifications, now }) {
 
   return {
     joinQueue, joinInTransaction, cancelEntry, cancelInTransaction, serveNext, serveInTransaction,
-    setEntryPriority, setPriorityInTransaction, getEntryStats,
+    setEntryPriority, setPriorityInTransaction, getEntryStats, listMyQueueHistory, listQueueHistory,
     joinByService, leaveByService, statusByService,
     adminQueueByService, serveNextByService, setPriorityByService, removeByService,
     hydrate, settled, toA3Entry,

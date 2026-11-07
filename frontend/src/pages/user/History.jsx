@@ -1,20 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getHistory } from '../../api/user'
-import { listServices } from '../../api/services'
+import { getMyQueueHistory } from '../../api/queue'
 import './History.css'
 
 const outcomeLabels = {
   served: 'Served',
-  left: 'Left Queue',
-  removed: 'Removed',
+  canceled: 'Canceled',
 }
 
 const filters = [
   { value: 'all', label: 'All' },
   { value: 'served', label: 'Served' },
-  { value: 'left', label: 'Left Queue' },
-  { value: 'removed', label: 'Removed' },
+  { value: 'canceled', label: 'Canceled' },
 ]
 
 function formatDate(date) {
@@ -31,23 +28,20 @@ function waitMinutes(record) {
 
 export default function History() {
   const [filter, setFilter] = useState('all')
-  const [queueHistory, setQueueHistory] = useState([])
+  const [page, setPage] = useState(1)
+  const [result, setResult] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [needsLogin, setNeedsLogin] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let active = true
-    Promise.all([getHistory(), listServices()])
-      .then(([records, services]) => {
+    getMyQueueHistory({ page, outcome: filter === 'all' ? undefined : filter })
+      .then((data) => {
         if (!active) return
-        const names = new Map(services.map((service) => [service.id, service.name]))
-        setQueueHistory(
-          records.map((record) => ({
-            ...record,
-            serviceName: names.get(record.serviceId) ?? 'Unknown service',
-          })),
-        )
+        setResult(data)
+        setNeedsLogin(false)
+        setError('')
       })
       .catch((err) => {
         if (!active) return
@@ -60,12 +54,21 @@ export default function History() {
     return () => {
       active = false
     }
-  }, [])
+  }, [page, filter])
 
-  const visibleHistory =
-    filter === 'all'
-      ? queueHistory
-      : queueHistory.filter((entry) => entry.outcome === filter)
+  function chooseFilter(value) {
+    if (value === filter) return
+    setIsLoading(true)
+    setFilter(value)
+    setPage(1)
+  }
+
+  function goTo(next) {
+    setIsLoading(true)
+    setPage(next)
+  }
+
+  const items = result?.items ?? []
 
   return (
     <div className="history">
@@ -94,7 +97,7 @@ export default function History() {
                     : 'button-secondary history-filter'
                 }
                 aria-pressed={filter === option.value}
-                onClick={() => setFilter(option.value)}
+                onClick={() => chooseFilter(option.value)}
               >
                 {option.label}
               </button>
@@ -112,11 +115,13 @@ export default function History() {
           <p className="history-empty" role="alert">
             {error}
           </p>
-        ) : visibleHistory.length === 0 ? (
+        ) : items.length === 0 ? (
           <p className="history-empty">
-            {filter === 'all'
-              ? 'You have no queue history yet.'
-              : 'No visits match this filter.'}
+            {filter !== 'all'
+              ? 'No visits match this filter.'
+              : page === 1
+                ? 'You have no queue history yet.'
+                : 'There are no visits on this page.'}
           </p>
         ) : (
           <div className="history-table-wrapper">
@@ -130,7 +135,7 @@ export default function History() {
                 </tr>
               </thead>
               <tbody>
-                {visibleHistory.map((entry) => (
+                {items.map((entry) => (
                   <tr key={entry.id}>
                     <td>{formatDate(entry.endedAt)}</td>
                     <td>{entry.serviceName}</td>
@@ -147,6 +152,30 @@ export default function History() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {result && result.totalPages > 1 && (
+          <nav className="history-pages" aria-label="History pages">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => goTo(page - 1)}
+              disabled={isLoading || page <= 1}
+            >
+              Newer
+            </button>
+            <span>
+              Page {page} of {result.totalPages}
+            </span>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => goTo(page + 1)}
+              disabled={isLoading || page >= result.totalPages}
+            >
+              Older
+            </button>
+          </nav>
         )}
       </section>
     </div>

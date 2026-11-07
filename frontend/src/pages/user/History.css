@@ -89,8 +89,17 @@
   color: var(--color-success);
 }
 
+.history-outcome-canceled,
 .history-outcome-left,
 .history-outcome-removed {
   background: #fdecea;
   color: var(--color-error);
+}
+
+.history-pages {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
 }

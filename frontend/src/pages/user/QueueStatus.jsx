@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { listServices } from '../../api/services'
-import { getMyQueues, leaveQueue, statusLabel } from '../../api/queue'
+import { getMyQueueHistory, getMyQueues, leaveQueue, statusLabel } from '../../api/queue'
 import './QueueStatus.css'
 
 const statusSteps = ['Joined', 'Waiting', 'Almost Ready', 'Served']
@@ -34,8 +34,17 @@ export default function QueueStatus() {
     const watched = requestedId || Object.keys(previous)[0]
     if (watched && previous[watched] && !queues[watched]) {
       const name = list.find(s => s.id === watched)?.name || 'this service'
-      setNotice(`You are no longer waiting for ${name}. You were served, left, or were removed. Check your History for the outcome.`)
-    }
+      setNotice(`You are no longer waiting for ${name}. Check your History for the outcome.`)
+      getMyQueueHistory({ pageSize: 1 })
+        .then(({ items: [last] }) => {
+          if (last?.serviceId !== watched) return
+          setNotice(last.outcome === 'served'
+            ? `You have been served at ${name}.`
+            : `Your place in the ${name} queue was canceled. Check your History for details.`)
+        })
+        .catch(() => {})    
+      }
+
     previousQueues.current = queues
     setServices(list)
     setMyQueues(queues)
