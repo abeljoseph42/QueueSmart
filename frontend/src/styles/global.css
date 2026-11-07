@@ -120,6 +120,10 @@ button:disabled {
   text-decoration: none;
 }
 
+.navigation-logout {
+  margin-left: auto;
+}
+
 .navigation a:hover,
 .navigation a.active {
   background: #eaf0fc;

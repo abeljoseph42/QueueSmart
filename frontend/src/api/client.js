@@ -13,6 +13,10 @@ export function clearSession() {
   sessionStorage.removeItem(TOKEN_KEY)
 }
 
+export function hasSession() {
+  return Boolean(sessionStorage.getItem(TOKEN_KEY))
+}
+
 export async function apiRequest(
   path,
   { method = 'GET', body, authenticated = true } = {},

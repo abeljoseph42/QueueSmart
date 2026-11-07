@@ -19,6 +19,7 @@ function formatDate(date) {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'America/Chicago',
   })
 }
 
