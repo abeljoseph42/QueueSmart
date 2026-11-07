@@ -14,7 +14,7 @@ const { createNotificationService } = require('../src/modules/heera/notification
 const { createQueueEntryRepository } = require('../src/modules/bryan/queueEntryRepository');
 
 const person = (name, role = 'user') => ({ id: randomUUID(), name, email: `${name.toLowerCase()}@example.com`, role });
-const users = { admin: person('Admin', 'admin'), ana: person('Ana'), ben: person('Ben'), cy: person('Cy') };
+const users = { admin: person('Admin', 'admin'), ana: person('Ana'), ben: person('Ben'), cy: person('Cy'), dee: person('Dee') };
 const advising = { name: 'Student Advising', description: 'Course planning help',
   expectedDurationMinutes: 15, priority: 'medium' };
 
@@ -291,8 +291,9 @@ describe('contract functions', () => {
 describe('notifications', () => {
   const notificationRows = userId => db.prepare(`SELECT type, event_key, status, message FROM notification
     WHERE user_id = ? ORDER BY created_at, rowid`).all(userId).map(r => ({ ...r }));
+  const types = userId => notificationRows(userId).map(n => n.type);
 
-  test('joining and being served through the API each store one notification', async () => {
+  test('joining and being served through the API store joined, almost ready, and served notifications', async () => {
     const service = await openService();
     const entry = (await join('ana', service.id)).body.data.entry;
     await join('ana', service.id);
@@ -300,25 +301,48 @@ describe('notifications', () => {
     expect(notificationRows(users.ana.id).map(({ status, ...rest }) => rest)).toEqual([
       { type: 'queue.joined', event_key: `queue.joined:${entry.id}`,
         message: 'You joined the Student Advising queue.' },
+      { type: 'queue.near', event_key: `queue.near:${entry.id}`,
+        message: 'You\'re almost up in the Student Advising queue.' },
       { type: 'queue.served', event_key: `queue.served:${entry.id}`,
         message: 'You have been served at Student Advising.' },
     ]);
     const mine = (await as('ana', 'get', '/api/me/notifications')).body.data.items.map(n => n.type);
-    expect(mine).toEqual(['queue.served', 'queue.joined']);
+    // Joined and almost ready can share a timestamp, so only the set is fixed.
+    expect([...mine].sort()).toEqual(['queue.joined', 'queue.near', 'queue.served']);
     expect((await as('ben', 'get', '/api/me/notifications')).body.data.items).toEqual([]);
   });
 
-  test('leaving, removal, priority changes, and failed joins send nothing', async () => {
+  test('almost ready is sent once, when an entry first reaches the top two', async () => {
     const service = await openService();
-    const { ana, ben, cy } = await threeWaiting(service);
+    await threeWaiting(service);
+    expect([types(users.ana.id), types(users.ben.id), types(users.cy.id)]).toEqual([
+      ['queue.joined', 'queue.near'], ['queue.joined', 'queue.near'], ['queue.joined']]);
+    await serve('admin', service.id);
+    expect(types(users.cy.id)).toEqual(['queue.joined', 'queue.near']);
+    await serve('admin', service.id);
+    expect(types(users.cy.id)).toEqual(['queue.joined', 'queue.near']);
+  });
+
+  test('leaving, removal, and priority changes notify only whoever moves into the top two', async () => {
+    const service = await openService();
+    const { ben } = await threeWaiting(service);
+    await join('dee', service.id);
     await as('ana', 'delete', `/api/services/${service.id}/queue/me`);
+    expect(types(users.cy.id)).toEqual(['queue.joined', 'queue.near']);
     await remove('admin', service.id, ben.id);
+    expect(types(users.dee.id)).toEqual(['queue.joined', 'queue.near']);
+    expect(types(users.ana.id)).toEqual(['queue.joined', 'queue.near']);
+    expect(types(users.ben.id)).toEqual(['queue.joined', 'queue.near']);
+  });
+
+  test('a priority change that moves someone up notifies them, and a closed queue sends nothing', async () => {
+    const service = await openService();
+    const { cy } = await threeWaiting(service);
     await setPriority('admin', service.id, cy.id, { priority: 'high' });
+    expect(types(users.cy.id)).toEqual(['queue.joined', 'queue.near']);
     const closed = await createService({ ...advising, name: 'Closed Desk' });
-    await join('ana', closed.id);
-    expect(notificationRows(users.ana.id).map(n => n.event_key)).toEqual([`queue.joined:${ana.id}`]);
-    expect(notificationRows(users.ben.id).map(n => n.type)).toEqual(['queue.joined']);
-    expect(notificationRows(users.cy.id).map(n => n.type)).toEqual(['queue.joined']);
+    await join('dee', closed.id);
+    expect(types(users.dee.id)).toEqual([]);
   });
 
   test('the email is sent after commit with the user address, subject, and message', async () => {
@@ -332,6 +356,7 @@ describe('notifications', () => {
     await svc.settled();
     expect(send.mock.calls.map(([mail]) => [mail.to, mail.subject, mail.text])).toEqual([
       [users.ana.email, 'Joined Student Advising', 'You joined the Student Advising queue.'],
+      [users.ana.email, 'Almost ready at Student Advising', 'You\'re almost up in the Student Advising queue.'],
       [users.ana.email, 'Served at Student Advising', 'You have been served at Student Advising.'],
     ]);
   });
@@ -345,7 +370,7 @@ describe('notifications', () => {
     svc.serveNext(users.admin, queueId);
     await svc.settled();
     expect(row(entry.id).status).toBe('served');
-    expect(notificationRows(users.ana.id).map(n => n.status)).toEqual(['failed', 'failed']);
+    expect(notificationRows(users.ana.id).map(n => n.status)).toEqual(['failed', 'failed', 'failed']);
     expect(notifications.listForUser(users.ana.id).items[0].lastError).toBe('SMTP down');
   });
 
@@ -365,7 +390,7 @@ describe('notifications', () => {
       throw new Error('boom');
     })).toThrow('boom');
     expect(notificationRows(users.ana.id)).toEqual([]);
-    expect(notificationRows(users.ben.id).map(n => n.type)).toEqual(['queue.joined']);
+    expect(types(users.ben.id)).toEqual(['queue.joined', 'queue.near']);
   });
 
   test('without a notification service nothing is queued and settled resolves', async () => {

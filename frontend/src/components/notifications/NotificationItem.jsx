@@ -1,4 +1,8 @@
 const typeLabels = {
+  'user.welcome': 'Welcome',
+  'appointment.booked': 'Appointment booked',
+  'appointment.rescheduled': 'Appointment rescheduled',
+  'appointment.canceled': 'Appointment canceled',
   'queue.joined': 'Joined',
   'queue.near': 'Almost ready',
   'queue.served': 'Served',
@@ -15,6 +19,7 @@ function timeAgo(createdAt) {
   return new Date(createdAt).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
+    timeZone: 'America/Chicago',
   })
 }
 
@@ -23,7 +28,7 @@ export default function NotificationItem({ notification }) {
     <li className="notification">
       <div className="notification-meta">
         <span className="notification-type">
-          {typeLabels[notification.type]}
+          {typeLabels[notification.type] ?? 'Update'}
         </span>
         <span className="notification-time">
           {timeAgo(notification.createdAt)}

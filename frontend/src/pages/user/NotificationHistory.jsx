@@ -5,10 +5,12 @@ import { formatCentral } from './appointmentTime'
 import './NotificationHistory.css'
 
 const typeLabels = {
+  'account.welcome': 'Welcome',
   'appointment.booked': 'Appointment booked',
   'appointment.rescheduled': 'Appointment rescheduled',
   'appointment.canceled': 'Appointment canceled',
   'queue.joined': 'Joined queue',
+  'queue.near': 'Almost ready',
   'queue.served': 'Served',
   'user.welcome': 'Welcome',
 }
