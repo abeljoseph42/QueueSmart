@@ -13,6 +13,7 @@ const {
   createAuthService,
 } = require('./modules/nik/auth.service');
 const { createServiceManager } = require('./modules/abel/serviceManager');
+const { createNotificationService } = require('./modules/heera/notificationService');
 function createApp({
   store = createStore(),
   events = createEventBus(),
@@ -25,19 +26,21 @@ function createApp({
   app.use(cors({ origin: frontendOrigin }));
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/health', (_req, res) => res.json({ data: { status: 'ok' } }));
-  const authService = createAuthService({ store, db });
+  const notificationService = db ? createNotificationService(db) : undefined;
+  const authService = createAuthService({ store, db, notificationService });
 
   const context = {
     store,
     events,
     authService,
+    notificationService,
     db,
     serviceManager: db ? createServiceManager({ store, db }) : undefined,
 auth: requireAuth(resolveUser ?? authService.resolveUser),
   };
   app.locals.store = store;
   app.locals.events = events;
-  app.locals.stopSubscribers = initQueueSubscribers({ store, events });
+  app.locals.stopSubscribers = initQueueSubscribers({ store, events }, db ? [] : undefined);
   routers.forEach(createRouter => app.use('/api', createRouter(context)));
 
   if (db) {
